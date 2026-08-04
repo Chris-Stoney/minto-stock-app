@@ -573,7 +573,7 @@ const Chip = ({ color, children }) => (
   </span>
 );
 
-const Field = ({ f, value, onChange, mobs, paddocks, properties, classes, teamNames }) => {
+const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes, teamNames }) => {
   const common = {
     value: value ?? "",
     onChange: (e) => onChange(f.key, e.target.value),
@@ -591,7 +591,7 @@ const Field = ({ f, value, onChange, mobs, paddocks, properties, classes, teamNa
         <textarea rows={2} {...common} />
       </div>
     );
-  if (f.type === "select" || f.type === "property" || f.type === "mob" || f.type === "class") {
+  if (f.type === "select" || f.type === "property" || f.type === "mob" || f.type === "class" || f.type === "breed") {
     let opts = f.options || [];
     if (f.type === "property") opts = properties;
     if (f.type === "breed")
