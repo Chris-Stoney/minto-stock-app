@@ -1127,7 +1127,7 @@ function ChatScreen({ property, me, onSetMe }) {
 
 /* ------------------ Main App ------------------ */
 
-export default function App() {
+export default function App({ onSignOut, userEmail } = {}) {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
   const [data, setData] = useState({
@@ -3149,6 +3149,19 @@ export default function App() {
               ))}
             </section>
             <FooImport properties={properties} onImport={importFoo} />
+            {onSignOut && (
+              <section className="card">
+                <div className="card-title">Account</div>
+                <p className="note">
+                  Signed in as <b>{userEmail || "—"}</b>.
+                </p>
+                <div className="btn-row" style={{ justifyContent: "flex-start" }}>
+                  <button className="btn ghost" onClick={onSignOut}>
+                    Sign out
+                  </button>
+                </div>
+              </section>
+            )}
             <section className="card">
               <div className="card-title">Data</div>
               <p className="note">
