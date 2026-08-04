@@ -1,0 +1,15 @@
+{
+  "name": "Minto Farm Records",
+  "short_name": "Minto",
+  "description": "Minto Pastoral farm records — mobile stock book",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E9E7DF",
+  "theme_color": "#2F4A33",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/apple-touch-icon.png", "sizes": "360x218", "type": "image/png", "purpose": "any" }
+  ]
+}
