@@ -8,15 +8,14 @@
    Rule: `shared === true` keys (mobs, moves, chat, ...) live in Supabase so
    the whole team shares them. `shared === false` keys (e.g. "mp2:me", this
    device's name) stay in localStorage — they're meant to be per-device.
-
-   Wire-up happens in main.jsx once .env.local has the Supabase URL + anon key.
    ============================================================ */
 
 import { createClient } from "@supabase/supabase-js";
 import { localStorageBackend } from "./storage.js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseConfig.js";
 
-const url = import.meta.env.VITE_SUPABASE_URL;
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const url = import.meta.env.VITE_SUPABASE_URL || SUPABASE_URL;
+const anon = import.meta.env.VITE_SUPABASE_ANON_KEY || SUPABASE_ANON_KEY;
 
 export const supabase = url && anon ? createClient(url, anon) : null;
 
