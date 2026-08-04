@@ -1,0 +1,9 @@
+{
+  "appId": "au.com.mintopastoral.farmrecords",
+  "appName": "Minto Farm Records",
+  "webDir": "dist",
+  "server": {
+    "url": "https://fantastic-treacle-2147ef.netlify.app",
+    "cleartext": false
+  }
+}
