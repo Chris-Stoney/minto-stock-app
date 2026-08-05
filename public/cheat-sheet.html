@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Minto Farm Records — Quick Guide</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; color: #23281F; background: #E9E7DF; line-height: 1.45; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 20px; }
+  header { background: #2F4A33; color: #F4F3EC; border-radius: 14px; padding: 18px 20px; display: flex; align-items: center; gap: 14px; }
+  .m { width: 48px; height: 48px; border-radius: 10px; background: #F4F3EC; color: #2F4A33; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 30px; font-family: Georgia, serif; }
+  header h1 { font-size: 22px; }
+  header p { opacity: .85; font-size: 13px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .5px; color: #2F4A33; margin: 22px 0 10px; border-bottom: 2px solid #C9C6B9; padding-bottom: 4px; }
+  .card { background: #fff; border: 1px solid #D9D6CB; border-radius: 12px; padding: 14px 16px; margin-top: 12px; }
+  ol.get { margin-left: 18px; } ol.get li { margin: 6px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .job { background: #fff; border: 1px solid #D9D6CB; border-radius: 10px; padding: 10px 12px; }
+  .job b { color: #2F4A33; }
+  .path { display: block; font-size: 13px; color: #55594d; margin-top: 3px; }
+  .path .k { background: #EFEDE5; border: 1px solid #D9D6CB; border-radius: 5px; padding: 1px 6px; font-size: 12px; white-space: nowrap; }
+  .rec { display: inline-block; background: #C25E1F; color: #fff; border-radius: 20px; padding: 2px 10px; font-weight: 700; font-size: 12px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tab { background: #EAF0EA; border: 1px solid #BFD0BF; border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+  .tips li { margin: 6px 0; }
+  .warn { color: #B03A2E; font-weight: 700; }
+  footer { text-align: center; color: #8B887A; font-size: 12px; margin: 24px 0 8px; }
+  a { color: #2F4A33; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  @media print { body { background: #fff; } .card, .job { border-color: #bbb; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="m">M</div>
+    <div>
+      <h1>Minto Farm Records — Quick Guide</h1>
+      <p>The farm stock book, on your phone. app.mintopastoral.com.au</p>
+    </div>
+  </header>
+
+  <h2>Getting started</h2>
+  <div class="card">
+    <ol class="get">
+      <li>Open <b>app.mintopastoral.com.au</b> on your phone.</li>
+      <li><b>Add it to your home screen</b> so it opens like an app —
+          iPhone: <b>Share → Add to Home Screen</b>; Android: <b>⋮ → Add to home screen</b>.</li>
+      <li>Tap the green <b>M</b> icon and <b>sign in</b> with the login you were given.</li>
+      <li>Go to <b>Chat</b> and type your name once, so everyone knows who's who.</li>
+    </ol>
+  </div>
+
+  <h2>The tabs along the bottom</h2>
+  <div class="card">
+    <div class="tabs">
+      <span class="tab"><b>Yards</b> — totals & alerts</span>
+      <span class="tab"><b>Stock</b> — mobs by paddock</span>
+      <span class="tab"><b>Rain</b></span>
+      <span class="tab"><b>Wool</b></span>
+      <span class="tab"><b>Chat</b> — team + photos</span>
+      <span class="tab"><b>Recs</b> — every record</span>
+      <span class="tab"><b>Setup</b> — managers</span>
+    </div>
+    <p style="margin-top:10px; font-size:14px;">Pick a property from the drop-down <b>top-right</b> to filter everything to that place. The orange <span class="rec">+ Record</span> button (on the Yards screen) is the fastest way to log anything.</p>
+  </div>
+
+  <h2>Common jobs</h2>
+  <div class="grid">
+    <div class="job"><b>Log rainfall</b><span class="path"><span class="k">+ Record</span> → Rainfall → property, mm → Save</span></div>
+    <div class="job"><b>Move a mob</b><span class="path"><span class="k">Stock</span> → tap the mob → <b>Move</b> → to paddock → Save</span></div>
+    <div class="job"><b>Drench / treat</b><span class="path">tap mob → <b>Treat</b> → product + <b>WHP days</b> → Save</span></div>
+    <div class="job"><b>Mark lambs / calves</b><span class="path">tap mob → <b>Nat. incr</b> → numbers marked → Save</span></div>
+    <div class="job"><b>Wean</b><span class="path">tap mob → <b>Wean</b> → head + new class → Save</span></div>
+    <div class="job"><b>Deaths / missing / found</b><span class="path">tap mob → <b>Deaths</b> / <b>Missing</b> / <b>Found</b> → number → Save</span></div>
+    <div class="job"><b>Sell or transfer (truck)</b><span class="path">tap mob → <b>Sell</b> or <b>Transfer</b> → tick loads, head → Save</span></div>
+    <div class="job"><b>Preg test — empties</b><span class="path">tap mob → <b>PTE</b> → number empty → Save</span></div>
+    <div class="job"><b>Shearing / wool</b><span class="path">tap mob → <b>✂️ Shear</b> → tally, kg → Save</span></div>
+    <div class="job"><b>Muster / job / menu</b><span class="path"><span class="k">+ Record</span> → pick it → fill in → Save</span></div>
+    <div class="job"><b>Send a message / photo</b><span class="path"><span class="k">Chat</span> → type, or tap 📷 → Send</span></div>
+    <div class="job"><b>Purchase order</b><span class="path"><span class="k">+ Record</span> → Purchase order → details → Save</span></div>
+  </div>
+
+  <h2>Good to know</h2>
+  <div class="card">
+    <ul class="tips" style="margin-left:18px;">
+      <li><b>Numbers update themselves.</b> Move, sell, mark, or wean and the head counts and paddocks change automatically.</li>
+      <li><b>Made a mistake?</b> Go to <b>Recs</b> (or Recent activity on Yards), find it, tap the <b>✕</b> — it undoes the entry and puts the numbers back.</li>
+      <li><span class="warn">⚠ WHP means do NOT sell yet.</span> A red WHP/ESI note means that mob is still inside a withholding period after treatment.</li>
+      <li><b>🐂 Receiving yards</b> on the Yards screen = stock trucked in that needs a paddock — tap <b>Allocate</b>.</li>
+      <li>Everyone sees the same data, live. Type carefully — it's the real stock book.</li>
+    </ul>
+  </div>
+
+  <footer>Minto Pastoral Co · Questions? Ask Chris or Gwen.</footer>
+
+</div>
+</body>
+</html>
