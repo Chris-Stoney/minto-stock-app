@@ -1,0 +1,55 @@
+name: Android release (Play Store .aab)
+
+# Builds a SIGNED Android App Bundle (.aab) for the Google Play internal-testing
+# track. Needs the 4 signing secrets from the keystore workflow. Download the
+# signed .aab from this run's Artifacts and upload it in the Play Console.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm install
+      - name: Build web assets
+        run: npm run build
+      - name: Add Android platform
+        run: npx cap add android
+      - name: Sync Capacitor
+        run: npx cap sync android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Build release bundle (unsigned)
+        run: cd android && chmod +x ./gradlew && ./gradlew bundleRelease --no-daemon
+      - name: Sign the bundle
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -z "$KS_B64" ]; then
+            echo "Signing secrets not set — run 'Generate Android signing key' first and add the 4 secrets."
+            exit 1
+          fi
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          AAB=$(find android -name "*.aab" | head -1)
+          echo "Signing $AAB"
+          jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
+            -keystore "$RUNNER_TEMP/upload.jks" \
+            -storepass "$KS_PASS" -keypass "$KEY_PASS" \
+            "$AAB" "$KEY_ALIAS"
+          jarsigner -verify "$AAB" && echo "Signature verified."
+          cp "$AAB" "minto-farm-records-release.aab"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: minto-android-aab
+          path: minto-farm-records-release.aab
+          if-no-files-found: error
