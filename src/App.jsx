@@ -1277,6 +1277,33 @@ export default function App({ onSignOut, userEmail } = {}) {
     })();
   }, []);
 
+  // Keep every device in sync. Without this a phone could hold an hour-old copy
+  // and, on its next save, overwrite records other people added in the meantime.
+  // Re-reading the shared data every few seconds keeps saves based on fresh data.
+  useEffect(() => {
+    if (!loaded) return;
+    const keys = [
+      "mobs", "moves", "health", "rain", "trucking", "maint", "pasture", "adjust",
+      "orders", "musters", "menu", "marking", "weaning", "pregtest", "pdkuse",
+      "shearing", "woolsale", "audit",
+    ];
+    const refresh = async () => {
+      if (STORAGE.mode === "memory") return;
+      try {
+        const vals = await Promise.all(keys.map((k) => loadKey(KEYS[k], null)));
+        setData((d) => {
+          const next = { ...d };
+          keys.forEach((k, i) => {
+            if (vals[i] !== null) next[k] = vals[i];
+          });
+          return next;
+        });
+      } catch {}
+    };
+    const t = setInterval(refresh, 12000);
+    return () => clearInterval(t);
+  }, [loaded]);
+
   const postToGeneralChat = async (text) => {
     try {
       const key = "mp2:chat:General";
