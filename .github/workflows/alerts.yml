@@ -1,0 +1,27 @@
+name: Daily alerts
+
+# Emails a digest (WHP/ESI withholding + purchase orders awaiting approval)
+# once a day, only when there's something to report. Run manually anytime from
+# the Actions tab. Needs secrets SUPABASE_SERVICE_KEY and RESEND_API_KEY.
+on:
+  schedule:
+    - cron: "0 20 * * *" # daily ~06:00 AEST
+  workflow_dispatch: {}
+
+jobs:
+  alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Send alert digest
+        env:
+          SB_URL: https://hohokbhldedjyzbmywjp.supabase.co
+          SB_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_TO: ${{ vars.ALERT_TO }}
+          ALERT_FROM: ${{ vars.ALERT_FROM }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: python scripts/alerts.py
