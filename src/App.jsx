@@ -24,6 +24,7 @@ const KEYS = {
   shearing: "mp2:shearing",
   woolsale: "mp2:woolsale",
   menu: "mp2:menu",
+  audit: "mp2:audit",
   settings: "mp2:settings-v5",
 };
 
@@ -1148,6 +1149,7 @@ export default function App({ onSignOut, userEmail } = {}) {
     pdkuse: [],
     shearing: [],
     woolsale: [],
+    audit: [],
   });
   const [settings, setSettings] = useState({ properties: DEFAULT_PROPERTIES, classes: DEFAULT_CLASSES, pics: {}, breeds: DEFAULT_BREEDS, tagColours: DEFAULT_TAGS, statuses: DEFAULT_STATUSES, approvers: [], team: DEFAULT_TEAM, contractors: DEFAULT_CONTRACTORS, customPaddocks: {} });
   const [activeForm, setActiveForm] = useState(null); // e.g. "rain", "mob", {type:"moves", defaults}
@@ -1225,6 +1227,7 @@ export default function App({ onSignOut, userEmail } = {}) {
         if (!PREVIEW && v.length) saveKey(KEYS[k], v);
         return v;
       };
+      const auditData = raced === "__SLOW__" ? [] : await loadKey(KEYS.audit, []);
       setData({
         mobs: fromBaseline(mobs, "mobs"),
         moves: fromBaseline(moves, "moves"),
@@ -1243,6 +1246,7 @@ export default function App({ onSignOut, userEmail } = {}) {
         pdkuse: fromBaseline(pdkuse, "pdkuse"),
         shearing: fromBaseline(shearing, "shearing"),
         woolsale: fromBaseline(woolsale, "woolsale"),
+        audit: auditData,
       });
       setSettings({
         properties: st?.properties || DEFAULT_PROPERTIES,
@@ -1277,6 +1281,16 @@ export default function App({ onSignOut, userEmail } = {}) {
   const flash = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(""), 2200);
+  };
+
+  // Managers-only audit trail: stamps every action with the signed-in login.
+  const logAudit = (action, summary) => {
+    const entry = { id: uid(), ts: Date.now(), user: userEmail || "unknown", action, summary: summary || "" };
+    setData((d) => {
+      const next = [entry, ...(d.audit || [])].slice(0, 2000);
+      if (!PREVIEW) saveKey(KEYS.audit, next);
+      return { ...d, audit: next };
+    });
   };
 
   const properties = settings.properties;
@@ -1611,6 +1625,10 @@ export default function App({ onSignOut, userEmail } = {}) {
       setAndSave("mobs", mobs);
     }
     setAndSave(typeKey, [rec, ...data[typeKey]]);
+    try {
+      const s = summarise(typeKey, rec);
+      logAudit(RECORD_TYPES[typeKey].single, [s.title, s.sub].filter(Boolean).join(" · "));
+    } catch {}
     setActiveForm(null);
     flash("Saved");
   };
@@ -1619,17 +1637,20 @@ export default function App({ onSignOut, userEmail } = {}) {
     const exists = data.mobs.some((m) => m.id === mob.id);
     const mobs = exists ? data.mobs.map((m) => (m.id === mob.id ? mob : m)) : [mob, ...data.mobs];
     setAndSave("mobs", mobs);
+    logAudit(exists ? "Edit mob" : "New mob", composeName(mob) + (mob.property ? " — " + mob.property : ""));
     setActiveForm(null);
     setEditMob(null);
     flash("Mob saved");
   };
 
   const deleteMob = (id) => {
+    const mob = data.mobs.find((m) => m.id === id);
     ask("Delete this mob? Records referencing it will remain.", () => {
       setAndSave(
         "mobs",
         data.mobs.filter((m) => m.id !== id)
       );
+      logAudit("Delete mob", mob ? composeName(mob) + (mob.property ? " — " + mob.property : "") : id);
       flash("Mob deleted");
     });
   };
@@ -1639,6 +1660,8 @@ export default function App({ onSignOut, userEmail } = {}) {
       o.id === id ? { ...o, status: decision, decidedBy: me || "", decidedAt: Date.now() } : o
     );
     setAndSave("orders", orders);
+    const o = data.orders.find((x) => x.id === id);
+    logAudit("PO " + decision, o ? (o.item || "") + " — $" + num(o.amount).toLocaleString() : "");
     flash("Order " + decision.toLowerCase());
   };
 
@@ -1729,6 +1752,10 @@ export default function App({ onSignOut, userEmail } = {}) {
         typeKey,
         data[typeKey].filter((r) => r.id !== id)
       );
+      try {
+        const s = rec ? summarise(typeKey, rec) : { title: id, sub: "" };
+        logAudit(reverses ? "Undo / delete" : "Delete", (RECORD_TYPES[typeKey]?.single || typeKey) + " · " + [s.title, s.sub].filter(Boolean).join(" · "));
+      } catch {}
       flash(reverses ? "Deleted — stock numbers restored" : "Deleted");
     });
   };
@@ -3024,6 +3051,7 @@ export default function App({ onSignOut, userEmail } = {}) {
             <div className="section-head">
               <h2>Setup</h2>
             </div>
+            <ActivityLog audit={data.audit || []} />
             <section className="card">
               <div className="card-title">Properties & PICs</div>
               {properties.map((p) => (
@@ -3283,6 +3311,50 @@ export default function App({ onSignOut, userEmail } = {}) {
         ))}
       </nav>
     </div>
+  );
+}
+
+function ActivityLog({ audit }) {
+  const [who, setWho] = useState("All");
+  const [limit, setLimit] = useState(100);
+  const users = ["All", ...Array.from(new Set(audit.map((a) => a.user).filter(Boolean)))];
+  const fmt = (ts) => {
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const rows = audit.filter((a) => who === "All" || a.user === who).slice(0, limit);
+  return (
+    <section className="card">
+      <div className="card-title">
+        Activity log <span className="card-title-n">{audit.length} entries</span>
+      </div>
+      <p className="note">Who did what, newest first — tied to each person's login. Managers only.</p>
+      <div className="prop-adder" style={{ marginTop: 0, marginBottom: 8 }}>
+        <select value={who} onChange={(e) => setWho(e.target.value)}>
+          {users.map((u) => (
+            <option key={u}>{u}</option>
+          ))}
+        </select>
+      </div>
+      {rows.length === 0 && <div className="empty">No activity recorded yet.</div>}
+      {rows.map((a) => (
+        <div className="rain-row" key={a.id}>
+          <span>
+            <b>{a.user}</b> — {a.action}
+            {a.summary ? ": " + a.summary : ""}
+          </span>
+          <span className="rain-mm" style={{ color: "#8B887A", fontWeight: 600, whiteSpace: "nowrap" }}>
+            {fmt(a.ts)}
+          </span>
+        </div>
+      ))}
+      {audit.filter((a) => who === "All" || a.user === who).length > limit && (
+        <button className="mini-btn" style={{ marginTop: 8 }} onClick={() => setLimit(limit + 200)}>
+          Show more
+        </button>
+      )}
+    </section>
   );
 }
 
