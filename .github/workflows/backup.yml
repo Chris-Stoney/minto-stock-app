@@ -1,0 +1,46 @@
+name: Daily backup
+
+# Saves a dated JSON snapshot of the whole Supabase 'store' table into backups/
+# every day. Uses the Supabase service_role key from the repo secret
+# SUPABASE_SERVICE_KEY (it must bypass RLS to read everything). Run manually
+# anytime from the Actions tab (Run workflow).
+on:
+  schedule:
+    - cron: "0 19 * * *" # daily ~05:00 AEST
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dump Supabase store table
+        env:
+          SB_URL: https://hohokbhldedjyzbmywjp.supabase.co
+          SB_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if [ -z "$SB_KEY" ]; then
+            echo "SUPABASE_SERVICE_KEY secret is not set — add it in repo Settings → Secrets."
+            exit 1
+          fi
+          mkdir -p backups
+          FILE="backups/backup-$(date +%F).json"
+          curl -s "$SB_URL/rest/v1/store?select=*" \
+            -H "apikey: $SB_KEY" \
+            -H "Authorization: Bearer $SB_KEY" \
+            -o "$FILE"
+          # A valid dump is a JSON array; anything else (e.g. an auth error) fails the run.
+          head -c1 "$FILE" | grep -q '\[' || { echo "Backup looks invalid:"; cat "$FILE"; exit 1; }
+          echo "Wrote $FILE ($(wc -c < "$FILE") bytes)"
+
+      - name: Commit backup
+        run: |
+          git config user.name "backup-bot"
+          git config user.email "backup@mintopastoral.com.au"
+          git add backups/
+          git diff --cached --quiet || git commit -m "Daily backup $(date +%F)"
+          git push
