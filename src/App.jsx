@@ -2117,7 +2117,7 @@ export default function App({ onSignOut, userEmail } = {}) {
           <div className="brand-logo-box">
             <img className="brand-logo" src={LOGO} alt="Minto Pastoral" />
           </div>
-          <div className="brand-sub">Farm records · build {BUILD}</div>
+          <div className="brand-sub">Farm records</div>
         </div>
         <select className="prop-filter" value={propFilter} onChange={(e) => setPropFilter(e.target.value)}>
           <option value="All">All properties</option>
