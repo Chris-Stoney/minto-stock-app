@@ -24,7 +24,7 @@ ALERT_TO = [e.strip() for e in os.environ.get("ALERT_TO", "").split(",") if e.st
     "chris@mintopastoral.com.au",
     "gwen@mintopastoral.com.au",
 ]
-APP_URL = os.environ.get("APP_URL", "https://fantastic-treacle-2147ef.netlify.app")
+APP_URL = os.environ.get("APP_URL", "https://app.mintopastoral.com.au")
 
 today = datetime.date.today().isoformat()
 

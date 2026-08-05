@@ -10,7 +10,7 @@ artifact ("BUILD 78") and has been turned into a real, independent, hosted web a
 the team uses on their phones. Owner/GM: Chris (chris@mintopastoral.com.au). Office: Gwen.
 
 ## Where everything lives
-- **Live app:** https://fantastic-treacle-2147ef.netlify.app
+- **Live app:** https://app.mintopastoral.com.au (Netlify URL fantastic-treacle-2147ef.netlify.app still works)
 - **Code (GitHub, private):** https://github.com/Chris-Stoney/minto-stock-app
 - **Hosting (Netlify):** project `fantastic-treacle-2147ef` — auto-deploys on every push to `main`.
 - **Database (Supabase):** org "Minto Pastoral Co", project `minto-stock-app`,
