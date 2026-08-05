@@ -958,7 +958,15 @@ function ChatScreen({ property, me, onSetMe }) {
         missing.map(async (m) => {
           try {
             const r = await window.storage.get(m.photoKey, true);
-            if (r) loaded[m.photoKey] = r.value;
+            // Photos are saved JSON-encoded (via saveKey), so decode on read.
+            // Fallback keeps working if a value was ever stored raw.
+            if (r && r.value != null) {
+              try {
+                loaded[m.photoKey] = JSON.parse(r.value);
+              } catch {
+                loaded[m.photoKey] = r.value;
+              }
+            }
           } catch {}
         })
       );
