@@ -3544,7 +3544,7 @@ function Style() {
 
     .topbar {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 14px 16px 10px;
+      padding: calc(14px + env(safe-area-inset-top)) 16px 10px;
       background: #2F4A33; color: #F4F3EC;
       position: sticky; top: 0; z-index: 20;
     }
