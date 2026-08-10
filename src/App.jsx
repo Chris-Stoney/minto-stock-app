@@ -940,11 +940,12 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
 
 const MAX_CHAT_MSGS = 50;
 
-function ChatScreen({ property, me, onSetMe }) {
+function ChatScreen({ property, me, onSetMe, properties }) {
   const [msgs, setMsgs] = useState([]);
   const [photos, setPhotos] = useState({});
   const [text, setText] = useState("");
   const [nameInput, setNameInput] = useState("");
+  const [locationInput, setLocationInput] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
   const key = "mp2:chat:" + property;
@@ -1067,13 +1068,22 @@ function ChatScreen({ property, me, onSetMe }) {
     return (
       <div className="card">
         <div className="card-title">Join the {property} chat</div>
-        <p className="note">Enter your name once — it shows on your messages so the team knows who is talking.</p>
+        <p className="note">Enter your name and location once — it shows on your messages so the team knows who is talking.</p>
         <div className="prop-adder">
           <input value={nameInput} placeholder="Your name" onChange={(e) => setNameInput(e.target.value)} />
+          <select value={locationInput} onChange={(e) => setLocationInput(e.target.value)}>
+            <option value="">Select location…</option>
+            {[...properties, "Stoney", "Contractor"].map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
           <button
             className="btn primary sm"
+            disabled={!nameInput.trim() || !locationInput}
             onClick={() => {
-              if (nameInput.trim()) onSetMe(nameInput.trim());
+              if (nameInput.trim() && locationInput) onSetMe(nameInput.trim() + " — " + locationInput);
             }}
           >
             Save
@@ -3058,6 +3068,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <ChatScreen
               property={chatChannel}
               me={me}
+              properties={properties}
               onSetMe={(name) => {
                 setMe(name);
                 try {
