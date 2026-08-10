@@ -7,7 +7,14 @@
    Requires a valid Supabase session (same login as the app) so the key can't be
    spent by anyone who finds the function URL. */
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../../src/lib/supabaseConfig.js";
+/* Same values as src/lib/supabaseConfig.js, duplicated here rather than
+   imported — Netlify's function bundler doesn't reliably resolve relative
+   imports that reach outside the netlify/functions folder, and a broken
+   function blocks the whole site deploy, not just itself. The anon key is
+   safe to duplicate: it's designed to be public (see that file's comment). */
+const SUPABASE_URL = "https://hohokbhldedjyzbmywjp.supabase.co";
+const SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvaG9rYmhsZGVkanl6Ym15d2pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4MTE0ODMsImV4cCI6MjEwMTM4NzQ4M30.Q_qVPVa1h9k5ZZxJL1eSg5KtvvjWYilVA-uOvdwDVOc";
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
