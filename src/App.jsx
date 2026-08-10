@@ -3077,6 +3077,19 @@ export default function App({ onSignOut, userEmail } = {}) {
                 access, ask Chris or Gwen to add your name to the approvers list.
               </p>
             </section>
+            {onSignOut && (
+              <section className="card">
+                <div className="card-title">Account</div>
+                <p className="note">
+                  Signed in as <b>{userEmail || "—"}</b>.
+                </p>
+                <div className="btn-row" style={{ justifyContent: "flex-start" }}>
+                  <button className="btn ghost" onClick={onSignOut}>
+                    Sign out
+                  </button>
+                </div>
+              </section>
+            )}
           </>
         )}
         {tab === "setup" && canApprove && (
