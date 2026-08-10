@@ -1137,7 +1137,7 @@ function ChatScreen({ property, me, onSetMe }) {
 
 /* ------------------ Main App ------------------ */
 
-export default function App({ onSignOut, userEmail } = {}) {
+export default function App({ onSignOut, userEmail, userName } = {}) {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
   const [data, setData] = useState({
@@ -1272,6 +1272,14 @@ export default function App({ onSignOut, userEmail } = {}) {
       try {
         const meR = await window.storage.get("mp2:me", false);
         if (meR) setMe(meR.value);
+        else if (userName) {
+          // First time on this device: adopt the name from the login instead of
+          // asking them to type it in Chat.
+          setMe(userName);
+          try {
+            window.storage.set("mp2:me", userName, false);
+          } catch {}
+        }
       } catch {}
       setStorageMode(STORAGE.mode);
       setLoaded(true);

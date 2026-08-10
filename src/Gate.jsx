@@ -35,7 +35,13 @@ export default function Gate() {
     return <div style={S.loading}>Loading…</div>;
 
   if (session)
-    return <App onSignOut={() => supabase.auth.signOut()} userEmail={session.user?.email} />;
+    return (
+      <App
+        onSignOut={() => supabase.auth.signOut()}
+        userEmail={session.user?.email}
+        userName={session.user?.user_metadata?.full_name || session.user?.user_metadata?.name || ""}
+      />
+    );
 
   return (
     <div style={S.wrap}>
