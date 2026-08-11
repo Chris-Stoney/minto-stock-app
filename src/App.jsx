@@ -3677,6 +3677,12 @@ function Style() {
       border: 1px solid rgba(255,255,255,0.25); border-radius: 8px;
       padding: 6px 8px; font-family: inherit; font-size: 14px;
     }
+    /* The select's light text colour otherwise carries into the open
+       dropdown list in most browsers, making options unreadable against
+       their light background — give options their own dark-on-light style. */
+    .prop-filter option {
+      color: #23281F; background: #FBFAF6;
+    }
 
     .main { padding: 14px 14px 20px; }
 
