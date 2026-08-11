@@ -1395,12 +1395,39 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 
   const mobById = (id) => data.mobs.find((m) => m.id === id);
 
+  // Two people saving around the same time can otherwise silently erase each
+  // other's records: this used to just write the local array straight over
+  // whatever was in Supabase. Now it re-fetches the latest shared copy first
+  // and merges this save's actual changes (by record id) into that, instead
+  // of overwriting the whole array with a possibly-stale local snapshot.
   const setAndSave = (key, arr) => {
+    const before = data[key] || [];
     setData((d) => ({ ...d, [key]: arr }));
     if (PREVIEW) return; // preview: in-session only
-    saveKey(KEYS[key], arr).then((ok) => {
+    (async () => {
+      let toWrite = arr;
+      if (STORAGE.mode === "shared") {
+        try {
+          const fresh = await loadKey(KEYS[key], null);
+          if (fresh) {
+            const beforeIds = new Set(before.map((r) => r.id));
+            const afterIds = new Set(arr.map((r) => r.id));
+            const removedIds = [...beforeIds].filter((id) => !afterIds.has(id));
+            const changed = arr.filter((r) => !before.find((b) => b.id === r.id && b === r));
+            let merged = fresh.filter((r) => !removedIds.includes(r.id));
+            changed.forEach((r) => {
+              const idx = merged.findIndex((m) => m.id === r.id);
+              if (idx >= 0) merged[idx] = r;
+              else merged = [r, ...merged];
+            });
+            toWrite = merged;
+            setData((d) => (d[key] === arr ? { ...d, [key]: merged } : d));
+          }
+        } catch {}
+      }
+      const ok = await saveKey(KEYS[key], toWrite);
       if (!ok) setStorageMode("memory");
-    });
+    })();
   };
 
   /* ---- save handlers ---- */
