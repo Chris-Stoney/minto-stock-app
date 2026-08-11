@@ -1745,6 +1745,14 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     flash("Order " + decision.toLowerCase());
   };
 
+  const markNlisRecorded = (id) => {
+    const trucking = data.trucking.map((t) => (t.id === id ? { ...t, nlis: "Recorded on NLIS" } : t));
+    setAndSave("trucking", trucking);
+    const t = data.trucking.find((x) => x.id === id);
+    logAudit("NLIS recorded", t ? t.head + " hd " + (t.mobName || t.cls || "") + " — " + fmtDate(t.date) : "");
+    flash("NLIS transfer marked recorded");
+  };
+
   const deleteRecord = (typeKey, id) => {
     const rec = (data[typeKey] || []).find((r) => r.id === id);
     const reverses = ["trucking", "adjust", "moves", "marking", "weaning", "pregtest"].includes(typeKey);
@@ -2438,8 +2446,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   <div className="rain-row" key={t.id}>
                     <span>
                       {fmtDate(t.date)} — {t.head} hd {t.mobName || t.cls || ""}
+                      <span className="whp-date"> · {t.ttype}</span>
                     </span>
-                    <span className="whp-date">{t.ttype}</span>
+                    <button className="mini-btn" onClick={() => ask("Mark this NLIS transfer as recorded?", () => markNlisRecorded(t.id))}>
+                      ✓ Mark recorded
+                    </button>
                   </div>
                 ))}
               </section>
