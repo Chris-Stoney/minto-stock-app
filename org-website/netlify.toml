@@ -1,0 +1,10 @@
+# This is a plain static page — no build step. Without this file, Netlify
+# falls back to the repo root's netlify.toml (npm run build), which fails
+# here since there's no package.json in this folder.
+[build]
+  publish = "."
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache, max-age=0, must-revalidate"
