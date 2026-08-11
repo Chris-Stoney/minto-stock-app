@@ -2442,17 +2442,23 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             {stats.nlisOutstanding.length > 0 && (
               <section className="card whp-card">
                 <div className="card-title">⚠ NLIS transfers outstanding</div>
-                {stats.nlisOutstanding.slice(0, 5).map((t) => (
-                  <div className="rain-row" key={t.id}>
-                    <span>
-                      {fmtDate(t.date)} — {t.head} hd {t.mobName || t.cls || ""}
-                      <span className="whp-date"> · {t.ttype}</span>
-                    </span>
-                    <button className="mini-btn" onClick={() => ask("Mark this NLIS transfer as recorded?", () => markNlisRecorded(t.id))}>
-                      ✓ Mark recorded
-                    </button>
-                  </div>
-                ))}
+                {stats.nlisOutstanding.slice(0, 5).map((t) => {
+                  const route =
+                    t.ttype === "Purchase"
+                      ? "→ " + (t.toProperty || "")
+                      : (t.property || "") + " → " + (t.ttype === "Sale to market" ? t.destination || "market" : t.toProperty || "");
+                  return (
+                    <div className="rain-row" key={t.id}>
+                      <span>
+                        {fmtDate(t.date)} — {t.head} hd {t.mobName || t.cls || ""}
+                        <span className="whp-date"> · {t.ttype} · {route}</span>
+                      </span>
+                      <button className="mini-btn" onClick={() => ask("Mark this NLIS transfer as recorded?", () => markNlisRecorded(t.id))}>
+                        ✓ Mark recorded
+                      </button>
+                    </div>
+                  );
+                })}
               </section>
             )}
 
