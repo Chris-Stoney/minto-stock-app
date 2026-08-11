@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Minto Pastoral Co</title>
+<meta name="description" content="Minto Pastoral Co — sheep and cattle grazing across New South Wales, South Australia and Victoria." />
+<link rel="icon" href="data:," />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #E9E7DF;
+    --surface: #FFFFFF;
+    --surface-border: #D9D6CB;
+    --ink: #23281F;
+    --ink-muted: #6a6f60;
+    --placeholder: #8B887A;
+    --brand: #2F4A33;
+    --brand-ink: #F4F3EC;
+    --accent: #6BA542;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191D16;
+      --surface: #22271D;
+      --surface-border: #343A2C;
+      --ink: #EDEBE1;
+      --ink-muted: #A6A38F;
+      --placeholder: #8E8B78;
+      --brand: #3C5C41;
+      --brand-ink: #F4F3EC;
+      --accent: #8ED35F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #191D16;
+    --surface: #22271D;
+    --surface-border: #343A2C;
+    --ink: #EDEBE1;
+    --ink-muted: #A6A38F;
+    --placeholder: #8E8B78;
+    --brand: #3C5C41;
+    --brand-ink: #F4F3EC;
+    --accent: #8ED35F;
+  }
+  :root[data-theme="light"] {
+    --bg: #E9E7DF;
+    --surface: #FFFFFF;
+    --surface-border: #D9D6CB;
+    --ink: #23281F;
+    --ink-muted: #6a6f60;
+    --placeholder: #8B887A;
+    --brand: #2F4A33;
+    --brand-ink: #F4F3EC;
+    --accent: #6BA542;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--brand); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .display {
+    font-family: 'Barlow Semi Condensed', system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    text-wrap: balance;
+  }
+
+  header.hero {
+    background: var(--brand);
+    color: var(--brand-ink);
+    border-bottom: 3px solid var(--accent);
+  }
+  .hero-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+    padding: 44px 0 40px;
+  }
+  .hero-mark { display: flex; align-items: center; gap: 14px; }
+  .hero-logo { width: 52px; height: 52px; border-radius: 10px; overflow: hidden; background: var(--brand-ink); flex: none; }
+  .hero-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .hero-wordmark { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; opacity: 0.9; }
+  .hero h1 { font-size: clamp(32px, 5vw, 44px); line-height: 1.05; }
+  .hero p.tagline { font-size: 17px; max-width: 46ch; opacity: 0.88; }
+  nav.hero-nav { display: flex; gap: 24px; flex-wrap: wrap; }
+  nav.hero-nav a {
+    color: var(--brand-ink);
+    opacity: 0.82;
+    text-decoration: none;
+    font-size: 13px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    padding-bottom: 3px;
+    border-bottom: 1px solid transparent;
+  }
+  nav.hero-nav a:hover { opacity: 1; border-bottom-color: var(--accent); }
+
+  main section {
+    padding: 52px 0;
+    border-bottom: 1px solid var(--surface-border);
+  }
+  main section:last-of-type { border-bottom: none; }
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin-bottom: 10px;
+  }
+  h2 {
+    font-size: 26px;
+    color: var(--brand);
+    margin-bottom: 16px;
+  }
+  p { font-size: 16px; max-width: 62ch; color: var(--ink); }
+  p + p { margin-top: 10px; }
+
+  .contact-grid {
+    margin-top: 18px;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 12px 20px;
+    max-width: 520px;
+  }
+  .contact-grid dt {
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    padding-top: 2px;
+    white-space: nowrap;
+  }
+  .contact-grid dd { font-size: 16px; }
+  .contact-grid a { font-weight: 600; text-decoration: none; }
+  .contact-grid a:hover { text-decoration: underline; }
+  .placeholder { color: var(--placeholder); font-style: italic; }
+
+  footer {
+    background: var(--brand);
+    color: var(--brand-ink);
+    text-align: center;
+    padding: 22px 0;
+    font-size: 13px;
+    opacity: 0.85;
+  }
+
+  @media (max-width: 560px) {
+    .hero-inner { padding: 34px 0 30px; }
+    main section { padding: 40px 0; }
+  }
+</style>
+</head>
+<body>
+
+  <header class="hero">
+    <div class="wrap hero-inner">
+      <div class="hero-mark">
+        <div class="hero-logo"><img src="data:image/png;base64,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" alt="Minto Pastoral Co logo" /></div>
+        <div class="hero-wordmark">Minto Pastoral Co</div>
+      </div>
+      <h1 class="display">Sheep &amp; cattle across three states, one operation.</h1>
+      <p class="tagline">Minto Pastoral Co runs sheep and cattle across New South Wales, South Australia and Victoria.</p>
+      <nav class="hero-nav">
+        <a href="#about">About</a>
+        <a href="#contact">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+
+    <section id="about">
+      <div class="eyebrow">About</div>
+      <h2 class="display">A family grazing operation</h2>
+      <p>
+        Minto Pastoral Co runs sheep and cattle across properties in New South Wales, South
+        Australia and Victoria, with a team on the ground managing livestock, pasture and
+        paddocks day to day.
+      </p>
+      <p>
+        The operation is backed by modern digital record-keeping — stock numbers, paddock
+        history, treatments and movements are tracked closely, keeping the business efficient
+        and accountable across every property.
+      </p>
+    </section>
+
+    <section id="contact">
+      <div class="eyebrow">Contact</div>
+      <h2 class="display">Get in touch</h2>
+      <dl class="contact-grid">
+        <dt>Email</dt>
+        <dd><a href="mailto:info@mintopastoral.com.au">info@mintopastoral.com.au</a></dd>
+        <dt>Phone</dt>
+        <dd>0499 195 334</dd>
+        <dt>Address</dt>
+        <dd>PO Box 170, Mansfield VIC 3724</dd>
+        <dt>ABN</dt>
+        <dd>70 276 248 436</dd>
+      </dl>
+    </section>
+
+  </main>
+
+  <footer>
+    &copy; <span id="year"></span> Minto Pastoral Co. All rights reserved.
+  </footer>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+
+</body>
+</html>
