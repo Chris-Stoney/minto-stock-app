@@ -1123,17 +1123,12 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
         if (!supabase) return;
         const token = (await supabase.auth.getSession()).data.session?.access_token;
         if (!token) return;
-        const res = await fetch("/.netlify/functions/send-chat-push", {
+        await fetch("/.netlify/functions/send-chat-push", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify({ channel: property, author: msg.author, text: msg.text }),
         });
-        const d = await res.json().catch(() => ({}));
-        // TEMPORARY debug alert — remove once notifications are confirmed working.
-        alert("Push debug: " + res.status + " " + JSON.stringify(d));
-      } catch (e) {
-        alert("Push debug: request failed — " + e.message);
-      }
+      } catch {}
     })();
   };
 
