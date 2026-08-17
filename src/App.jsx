@@ -2221,7 +2221,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             properties={properties}
             classes={settings.classes}
             breedList={settings.breeds || []}
-            teamNames={[...(settings.team || []).map((t) => t.split(" — ")[0].trim()), ...(settings.contractors || [])]}
+            teamNames={(settings.team || []).map((t) => t.split(" — ")[0].trim())}
             onSave={(rec) => {
               const typeKey = activeForm.type || activeForm;
               if (activeForm.editId) {
@@ -3294,20 +3294,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <section className="card">
               <div className="card-title">Team</div>
               <p className="note">Everyone on the payroll (and the kids). Format: Name — where they are. Used for muster crew picks.</p>
-              <ClassEditor
-                species="Team"
+              <TeamEditor
                 list={settings.team || []}
+                properties={properties}
                 onChange={(list) => {
                   const next = { ...settings, team: list };
-                  setSettings(next);
-                  saveKey(KEYS.settings, next);
-                }}
-              />
-              <ClassEditor
-                species="Regular contractors"
-                list={settings.contractors || []}
-                onChange={(list) => {
-                  const next = { ...settings, contractors: list };
                   setSettings(next);
                   saveKey(KEYS.settings, next);
                 }}
@@ -3659,6 +3650,50 @@ function FooImport({ properties, onImport }) {
         </button>
       </div>
     </section>
+  );
+}
+
+function TeamEditor({ list, onChange, properties }) {
+  const [name, setName] = useState("");
+  const [loc, setLoc] = useState("");
+  const locations = [...properties, "Stoney", "Contractor"];
+  return (
+    <div className="class-block">
+      <div className="class-sp">Team</div>
+      <div className="class-chips">
+        {list.map((c) => (
+          <span className="class-chip" key={c}>
+            {c}
+            <button className="class-x" onClick={() => onChange(list.filter((x) => x !== c))}>
+              ✕
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="prop-adder">
+        <input value={name} placeholder="Name…" onChange={(e) => setName(e.target.value)} />
+        <select value={loc} onChange={(e) => setLoc(e.target.value)}>
+          <option value="">Property / Contractor…</option>
+          {locations.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <button
+          className="btn primary sm"
+          onClick={() => {
+            if (!name.trim() || !loc) return;
+            const entry = name.trim() + " — " + loc;
+            if (!list.includes(entry)) onChange([...list, entry]);
+            setName("");
+            setLoc("");
+          }}
+        >
+          Add
+        </button>
+      </div>
+    </div>
   );
 }
 
