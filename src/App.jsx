@@ -975,7 +975,7 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
 
 const MAX_CHAT_MSGS = 50;
 
-function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail }) {
+function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, ask }) {
   const [msgs, setMsgs] = useState([]);
   const [photos, setPhotos] = useState({});
   const [text, setText] = useState("");
@@ -1123,13 +1123,25 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail }
         if (!supabase) return;
         const token = (await supabase.auth.getSession()).data.session?.access_token;
         if (!token) return;
-        await fetch("/.netlify/functions/send-chat-push", {
+        const res = await fetch("/.netlify/functions/send-chat-push", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify({ channel: property, author: msg.author, text: msg.text }),
         });
-      } catch {}
+        const d = await res.json().catch(() => ({}));
+        // TEMPORARY debug alert — remove once notifications are confirmed working.
+        alert("Push debug: " + res.status + " " + JSON.stringify(d));
+      } catch (e) {
+        alert("Push debug: request failed — " + e.message);
+      }
     })();
+  };
+
+  const deleteMsg = async (msgId) => {
+    const latest = await loadKey(key, []);
+    const next = latest.filter((m) => m.id !== msgId);
+    await saveKey(key, next);
+    setMsgs(next);
   };
 
   const react = async (msgId, emoji) => {
@@ -1215,6 +1227,14 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail }
           <div className={"chat-msg" + (m.author === me ? " mine" : "") + (m.system ? " system" : "")} key={m.id}>
             <div className="chat-meta">
               {m.author} · {fmtTs(m.ts)}
+              {m.author === me && !m.system && (
+                <button
+                  className="chat-del"
+                  onClick={() => ask("Delete this message?", () => deleteMsg(m.id))}
+                >
+                  ✕
+                </button>
+              )}
             </div>
             {m.photoKey && photos[m.photoKey] && <img className="chat-img" src={photos[m.photoKey]} alt="" />}
             {m.text && <div className="chat-text">{m.text}</div>}
@@ -3304,6 +3324,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               properties={properties}
               myProperty={myProperty}
               userEmail={userEmail}
+              ask={ask}
               onSetMe={(name) => {
                 setMe(name);
                 try {
@@ -4179,6 +4200,11 @@ function Style() {
     .chat-msg.mine { background: #EAF0EA; border-color: #BFD0BF; align-self: flex-end; }
     .chat-msg.system { background: #EEF0F7; border-color: #C6CCE3; align-self: stretch; max-width: 100%; }
     .chat-meta { font-size: 11.5px; color: #8B887A; font-weight: 600; margin-bottom: 3px; }
+    .chat-del {
+      background: none; border: none; color: #8B887A; font-size: 12px;
+      font-weight: 700; margin-left: 6px; padding: 0 2px; cursor: pointer;
+    }
+    .chat-del:hover { color: #B03A2E; }
     .chat-text { font-size: 15px; white-space: pre-wrap; }
     .chat-img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; }
     .react-row { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; align-items: center; }
