@@ -3951,8 +3951,8 @@ function Style() {
     }
     .qa-menu {
       background: #fff; border-radius: 14px; border: 1px solid #D9D6CB;
-      margin-bottom: 10px; overflow: hidden; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
-      min-width: 200px;
+      margin-bottom: 10px; overflow-y: auto; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      min-width: 200px; max-height: min(60vh, 420px);
     }
     .qa-item {
       display: flex; align-items: center; gap: 10px; width: 100%;
