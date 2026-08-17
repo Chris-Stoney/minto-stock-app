@@ -18,7 +18,15 @@ self.addEventListener("push", (event) => {
     badge: "/apple-touch-icon.png",
     data: { url: data.url || "/" },
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      // Home-screen app icon badge (iOS 16.4+ / Chrome installed PWAs). Not
+      // an exact unread count — just marks "there's something new" until the
+      // app clears it on open. Silently does nothing where unsupported.
+      self.registration.setAppBadge ? self.registration.setAppBadge(1).catch(() => {}) : Promise.resolve(),
+    ])
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {

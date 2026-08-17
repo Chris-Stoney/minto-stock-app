@@ -1280,6 +1280,9 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
 export default function App({ onSignOut, userEmail, userName } = {}) {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
+  useEffect(() => {
+    if (tab === "chat" && navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  }, [tab]);
   const [data, setData] = useState({
     mobs: [],
     moves: [],
