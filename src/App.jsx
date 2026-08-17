@@ -1280,8 +1280,25 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
 export default function App({ onSignOut, userEmail, userName } = {}) {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
+  const [hasNewChat, setHasNewChat] = useState(false);
+  const [lastReadChat, setLastReadChat] = useState(0);
   useEffect(() => {
-    if (tab === "chat" && navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+    (async () => {
+      try {
+        const r = await window.storage.get("mp2:lastReadChat", false);
+        if (r) setLastReadChat(Number(r.value) || 0);
+      } catch {}
+    })();
+  }, []);
+  useEffect(() => {
+    if (tab !== "chat") return;
+    const now = Date.now();
+    setLastReadChat(now);
+    setHasNewChat(false);
+    try {
+      window.storage.set("mp2:lastReadChat", now, false);
+    } catch {}
+    if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
   }, [tab]);
   const [data, setData] = useState({
     mobs: [],
@@ -1485,6 +1502,25 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   };
 
   const properties = settings.properties;
+
+  // Unread-chat dot on the nav button — checks every channel's latest message
+  // against when this device last opened Chat, independent of push
+  // notifications (works even for people who haven't turned those on).
+  useEffect(() => {
+    if (!loaded) return;
+    const checkNewChat = async () => {
+      if (STORAGE.mode === "memory") return;
+      try {
+        const channels = ["General", ...properties];
+        const lists = await Promise.all(channels.map((c) => loadKey("mp2:chat:" + c, [])));
+        const latest = lists.reduce((max, list) => Math.max(max, list.length ? list[list.length - 1].ts || 0 : 0), 0);
+        setHasNewChat(latest > lastReadChat);
+      } catch {}
+    };
+    checkNewChat();
+    const t = setInterval(checkNewChat, 12000);
+    return () => clearInterval(t);
+  }, [loaded, properties, lastReadChat]);
   const paddockMap = useMemo(() => {
     const map = {};
     properties.forEach((p) => {
@@ -3617,6 +3653,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             }}
           >
             {label}
+            {k === "chat" && hasNewChat && <span className="nav-dot" />}
           </button>
         ))}
       </nav>
@@ -4122,12 +4159,18 @@ function Style() {
       padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
     }
     .nav-btn {
+      position: relative;
       background: none; border: none; padding: 10px 4px;
       font-family: 'Barlow Semi Condensed'; font-weight: 600; font-size: 13px;
       letter-spacing: 0.4px; text-transform: uppercase; color: #8B887A;
       border-radius: 9px;
     }
     .nav-btn.active { color: #2F4A33; background: #EAF0EA; }
+    .nav-dot {
+      position: absolute; top: 6px; right: 10px;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #C0392B; border: 1.5px solid #FFFFFF;
+    }
 
     .empty { color: #8B887A; font-size: 14.5px; padding: 6px 0; }
     .pdk-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid #F0EEE6; }
