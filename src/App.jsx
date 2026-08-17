@@ -1120,7 +1120,7 @@ function ChatScreen({ property, me, onSetMe, properties }) {
     <>
       <div className="chat-list">
         {msgs.length === 0 && <div className="empty big">No messages yet — say hello and start the {property === "General" ? "company" : property} chat.</div>}
-        {msgs.map((m) => (
+        {[...msgs].reverse().map((m) => (
           <div className={"chat-msg" + (m.author === me ? " mine" : "") + (m.system ? " system" : "")} key={m.id}>
             <div className="chat-meta">
               {m.author} · {fmtTs(m.ts)}
