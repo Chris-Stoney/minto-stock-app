@@ -675,7 +675,7 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
 
 /* ------------------ Generic record form ------------------ */
 
-function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames, breedList = [], onSave, onCancel, defaults }) {
+function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames, breedList = [], onSave, onCancel, defaults, isEditing }) {
   const cfg = RECORD_TYPES[typeKey];
   const [vals, setVals] = useState(() => {
     const init = { date: todayStr(), ...(defaults || {}) };
@@ -715,7 +715,7 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
   return (
     <div className="card form-card">
       <div className="form-head">
-        <Chip color={cfg.tag}>{cfg.single}</Chip>
+        <Chip color={cfg.tag}>{isEditing ? "Edit — " : ""}{cfg.single}</Chip>
       </div>
       {visible.map((f) =>
         f.type === "mobmulti" ? (
@@ -772,6 +772,31 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
         />
         )
       )}
+      {typeKey === "trucking" &&
+        vals.ttype === "Property transfer" &&
+        vals.toProperty &&
+        (() => {
+          const loads = vals.loads || {};
+          const selectedIds = Object.keys(loads).filter((k) => num(loads[k]) > 0);
+          const hasMatch = selectedIds.some((id) => {
+            const src = mobs.find((m) => m.id === id);
+            return (
+              src &&
+              mobs.some(
+                (m) => m.id !== id && m.property === vals.toProperty && m.paddock === INBOX && composeName(m) === composeName(src)
+              )
+            );
+          });
+          if (!hasMatch) return null;
+          return (
+            <div className="f-row">
+              <label className="load-label">
+                <input type="checkbox" checked={!!vals.combineIfMatch} onChange={(e) => set("combineIfMatch", e.target.checked)} />
+                <span>Combine with the matching mob already in {vals.toProperty}'s Inbox</span>
+              </label>
+            </div>
+          );
+        })()}
       {err && <div className="err">{err}</div>}
       <div className="btn-row">
         <button className="btn ghost" onClick={onCancel}>
@@ -1337,8 +1362,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   };
 
   // Managers-only audit trail: stamps every action with the signed-in login.
-  const logAudit = (action, summary) => {
-    const entry = { id: uid(), ts: Date.now(), user: userEmail || "unknown", action, summary: summary || "" };
+  const logAudit = (action, summary, typeKey, recordId) => {
+    const entry = { id: uid(), ts: Date.now(), user: userEmail || "unknown", action, summary: summary || "", typeKey, recordId };
     setData((d) => {
       const next = [entry, ...(d.audit || [])].slice(0, 2000);
       if (!PREVIEW) saveKey(KEYS.audit, next);
@@ -1535,10 +1560,18 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         }
         if (rec.ttype === "Property transfer") {
           srcMobs.forEach((src) => {
-            mobs = [
-              { ...src, id: uid(), head: Math.round(num(loads[src.id])), property: rec.toProperty, paddock: INBOX, createdAt: Date.now() },
-              ...mobs,
-            ];
+            const moveHead = Math.round(num(loads[src.id]));
+            const destIdx = rec.combineIfMatch
+              ? mobs.findIndex((m) => m.property === rec.toProperty && m.paddock === INBOX && composeName(m) === composeName(src))
+              : -1;
+            if (destIdx >= 0) {
+              mobs = mobs.map((m, i) => (i === destIdx ? { ...m, head: num(m.head) + moveHead } : m));
+            } else {
+              mobs = [
+                { ...src, id: uid(), head: moveHead, property: rec.toProperty, paddock: INBOX, createdAt: Date.now() },
+                ...mobs,
+              ];
+            }
           });
           postToGeneralChat(
             "🚚 " + rec.head + " hd " + (rec.mobName || "") + " — " + rec.property + " → " + rec.toProperty + " on " + fmtDate(rec.date) + " — coming your way, " + rec.toProperty + " 🚚 (they’ll be in your receiving yards)"
@@ -1707,7 +1740,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     setAndSave(typeKey, [rec, ...data[typeKey]]);
     try {
       const s = summarise(typeKey, rec);
-      logAudit(RECORD_TYPES[typeKey].single, [s.title, s.sub].filter(Boolean).join(" · "));
+      logAudit(RECORD_TYPES[typeKey].single, [s.title, s.sub].filter(Boolean).join(" · "), typeKey, rec.id);
     } catch {}
     setActiveForm(null);
     flash("Saved");
@@ -1717,7 +1750,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const exists = data.mobs.some((m) => m.id === mob.id);
     const mobs = exists ? data.mobs.map((m) => (m.id === mob.id ? mob : m)) : [mob, ...data.mobs];
     setAndSave("mobs", mobs);
-    logAudit(exists ? "Edit mob" : "New mob", composeName(mob) + (mob.property ? " — " + mob.property : ""));
+    logAudit(exists ? "Edit mob" : "New mob", composeName(mob) + (mob.property ? " — " + mob.property : ""), "mobs", mob.id);
     setActiveForm(null);
     setEditMob(null);
     flash("Mob saved");
@@ -1730,7 +1763,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         "mobs",
         data.mobs.filter((m) => m.id !== id)
       );
-      logAudit("Delete mob", mob ? composeName(mob) + (mob.property ? " — " + mob.property : "") : id);
+      logAudit("Delete mob", mob ? composeName(mob) + (mob.property ? " — " + mob.property : "") : id, "mobs", id);
       flash("Mob deleted");
     });
   };
@@ -1741,7 +1774,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     );
     setAndSave("orders", orders);
     const o = data.orders.find((x) => x.id === id);
-    logAudit("PO " + decision, o ? (o.item || "") + " — $" + num(o.amount).toLocaleString() : "");
+    logAudit("PO " + decision, o ? (o.item || "") + " — $" + num(o.amount).toLocaleString() : "", "orders", id);
     flash("Order " + decision.toLowerCase());
   };
 
@@ -1749,15 +1782,16 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const trucking = data.trucking.map((t) => (t.id === id ? { ...t, nlis: "Recorded on NLIS" } : t));
     setAndSave("trucking", trucking);
     const t = data.trucking.find((x) => x.id === id);
-    logAudit("NLIS recorded", t ? t.head + " hd " + (t.mobName || t.cls || "") + " — " + fmtDate(t.date) : "");
+    logAudit("NLIS recorded", t ? t.head + " hd " + (t.mobName || t.cls || "") + " — " + fmtDate(t.date) : "", "trucking", id);
     flash("NLIS transfer marked recorded");
   };
 
-  const deleteRecord = (typeKey, id) => {
+  // Reverses a record's stock-count/paddock side effects (if any) and removes it
+  // from its list. Shared by delete (with a confirm prompt) and edit (silent —
+  // the old version is retired and the edited version is re-applied fresh).
+  const reverseRecordEffects = (typeKey, id) => {
     const rec = (data[typeKey] || []).find((r) => r.id === id);
-    const reverses = ["trucking", "adjust", "moves", "marking", "weaning", "pregtest"].includes(typeKey);
-    ask(reverses ? "Undo this entry? Stock numbers and paddocks will be put back." : "Delete this record?", () => {
-      let mobs = data.mobs;
+    let mobs = data.mobs;
       if (typeKey === "adjust" && rec && rec.delta) {
         mobs = mobs.map((m) => (m.id === rec.mobId ? { ...m, head: num(m.head) - num(rec.delta) } : m));
       }
@@ -1840,12 +1874,37 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         typeKey,
         data[typeKey].filter((r) => r.id !== id)
       );
+    return rec;
+  };
+
+  const deleteRecord = (typeKey, id) => {
+    const reverses = ["trucking", "adjust", "moves", "marking", "weaning", "pregtest"].includes(typeKey);
+    ask(reverses ? "Undo this entry? Stock numbers and paddocks will be put back." : "Delete this record?", () => {
+      const rec = reverseRecordEffects(typeKey, id);
       try {
         const s = rec ? summarise(typeKey, rec) : { title: id, sub: "" };
-        logAudit(reverses ? "Undo / delete" : "Delete", (RECORD_TYPES[typeKey]?.single || typeKey) + " · " + [s.title, s.sub].filter(Boolean).join(" · "));
+        logAudit(reverses ? "Undo / delete" : "Delete", (RECORD_TYPES[typeKey]?.single || typeKey) + " · " + [s.title, s.sub].filter(Boolean).join(" · "), typeKey, id);
       } catch {}
       flash(reverses ? "Deleted — stock numbers restored" : "Deleted");
     });
+  };
+
+  const editRecordFromLog = (typeKey, id) => {
+    if (typeKey === "mobs") {
+      const mob = data.mobs.find((m) => m.id === id);
+      if (mob) {
+        setEditMob(mob);
+        setActiveForm("mob");
+      }
+      return;
+    }
+    const rec = (data[typeKey] || []).find((r) => r.id === id);
+    if (rec) setActiveForm({ type: typeKey, defaults: rec, editId: id });
+  };
+
+  const deleteRecordFromLog = (typeKey, id) => {
+    if (typeKey === "mobs") deleteMob(id);
+    else deleteRecord(typeKey, id);
   };
 
   /* ---- derived stats ---- */
@@ -1881,7 +1940,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     );
     const sold = trkSrc.filter((t) => t.ttype === "Sale to market").reduce((a, t) => a + num(t.head), 0);
     const bought = trkSrc.filter((t) => t.ttype === "Purchase").reduce((a, t) => a + num(t.head), 0);
-    const recon = { deaths: sumBy("Deaths"), missing: sumBy("Mismustered / missing"), found: sumBy("Found"), sold, bought };
+    const missing = sumBy("Mismustered / missing");
+    const found = sumBy("Found");
+    const recon = { deaths: sumBy("Deaths"), missing, found, netMissing: missing - found, sold, bought };
     const nlisOutstanding = (propFilter === "All" ? data.trucking : data.trucking.filter((t) => t.property === propFilter)).filter(
       (t) => t.nlis === "Not yet recorded"
     );
@@ -1913,9 +1974,10 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         return {
           title: `${r.mobName || "Mob"} — ${r.product}`,
           sub: [
+            r.property,
             r.dose,
-            r.whpClear ? (r.whpClear >= todayStr() ? `WHP until ${fmtDate(r.whpClear)}` : "WHP clear") : "",
-            r.esiClear ? (r.esiClear >= todayStr() ? `ESI until ${fmtDate(r.esiClear)}` : "ESI clear") : "",
+            r.whpClear ? (r.whpClear >= todayStr() ? `WHP until ${fmtDate(r.whpClear)}` : `WHP cleared ${fmtDate(r.whpClear)}`) : "",
+            r.esiClear ? (r.esiClear >= todayStr() ? `ESI until ${fmtDate(r.esiClear)}` : `ESI cleared ${fmtDate(r.esiClear)}`) : "",
           ]
             .filter(Boolean)
             .join(" · "),
@@ -2153,13 +2215,21 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           <RecordForm
             typeKey={activeForm.type || activeForm}
             defaults={activeForm.defaults}
+            isEditing={!!activeForm.editId}
             mobs={data.mobs}
             paddocksFor={paddocksFor}
             properties={properties}
             classes={settings.classes}
             breedList={settings.breeds || []}
             teamNames={[...(settings.team || []).map((t) => t.split(" — ")[0].trim()), ...(settings.contractors || [])]}
-            onSave={(rec) => saveRecord(activeForm.type || activeForm, rec)}
+            onSave={(rec) => {
+              const typeKey = activeForm.type || activeForm;
+              if (activeForm.editId) {
+                reverseRecordEffects(typeKey, activeForm.editId);
+                rec = { ...rec, id: activeForm.editId };
+              }
+              saveRecord(typeKey, rec);
+            }}
             onCancel={() => setActiveForm(null)}
           />
         )}
@@ -2294,6 +2364,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   <div className="rain-row" key={h.id}>
                     <span>
                       {h.mobName} — {h.product}
+                      {h.property ? " (" + h.property + ")" : ""}
                     </span>
                     <span className="whp-date">
                       {[
@@ -2465,8 +2536,13 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <section className="card">
               <div className="card-title">Reconciliation — last 12 months</div>
               <div className="rain-row"><span>Deaths</span><span className="recon-neg">−{stats.recon.deaths}</span></div>
-              <div className="rain-row"><span>Mismustered / missing</span><span className="recon-neg">−{stats.recon.missing}</span></div>
-              <div className="rain-row"><span>Found</span><span className="recon-pos">+{stats.recon.found}</span></div>
+              <div className="rain-row">
+                <span>Mismustered / missing (net of found)</span>
+                <span className={stats.recon.netMissing > 0 ? "recon-neg" : "recon-pos"}>
+                  {stats.recon.netMissing > 0 ? "−" : "+"}
+                  {Math.abs(stats.recon.netMissing)}
+                </span>
+              </div>
               <div className="rain-row"><span>Sold to market</span><span className="recon-neg">−{stats.recon.sold}</span></div>
               <div className="rain-row"><span>Purchased</span><span className="recon-pos">+{stats.recon.bought}</span></div>
               {stats.cattle + stats.sheep > 0 && (
@@ -2703,6 +2779,17 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                     {r.notes && <div className="rec-notes">{r.notes}</div>}
                   </div>
                   <div className="rec-item-actions">
+                    {recordView === "health" && mobById(r.mobId) && (
+                      <button
+                        className="mini-btn"
+                        onClick={() => {
+                          setEditMob(mobById(r.mobId));
+                          setActiveForm("mob");
+                        }}
+                      >
+                        View mob
+                      </button>
+                    )}
                     {recordView === "musters" && (
                       <button className="mini-btn" onClick={() => downloadIcs(r)}>
                         📅
@@ -3167,7 +3254,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <div className="section-head">
               <h2>Setup</h2>
             </div>
-            <ActivityLog audit={data.audit || []} />
+            <ActivityLog audit={data.audit || []} data={data} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} />
             <section className="card">
               <div className="card-title">Properties & PICs</div>
               {properties.map((p) => (
@@ -3430,16 +3517,19 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   );
 }
 
-function ActivityLog({ audit }) {
+function ActivityLog({ audit, data, onEdit, onDelete }) {
   const [who, setWho] = useState("All");
+  const [actionType, setActionType] = useState("All");
   const [limit, setLimit] = useState(100);
   const users = ["All", ...Array.from(new Set(audit.map((a) => a.user).filter(Boolean)))];
+  const actionTypes = ["All", ...Array.from(new Set(audit.map((a) => a.action).filter(Boolean))).sort()];
   const fmt = (ts) => {
     const d = new Date(ts);
     const p = (n) => String(n).padStart(2, "0");
     return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
   };
-  const rows = audit.filter((a) => who === "All" || a.user === who).slice(0, limit);
+  const matches = (a) => (who === "All" || a.user === who) && (actionType === "All" || a.action === actionType);
+  const rows = audit.filter(matches).slice(0, limit);
   return (
     <section className="card">
       <div className="card-title">
@@ -3452,20 +3542,40 @@ function ActivityLog({ audit }) {
             <option key={u}>{u}</option>
           ))}
         </select>
+        <select value={actionType} onChange={(e) => setActionType(e.target.value)}>
+          {actionTypes.map((t) => (
+            <option key={t}>{t}</option>
+          ))}
+        </select>
       </div>
       {rows.length === 0 && <div className="empty">No activity recorded yet.</div>}
-      {rows.map((a) => (
-        <div className="rain-row" key={a.id}>
-          <span>
-            <b>{a.user}</b> — {a.action}
-            {a.summary ? ": " + a.summary : ""}
-          </span>
-          <span className="rain-mm" style={{ color: "#8B887A", fontWeight: 600, whiteSpace: "nowrap" }}>
-            {fmt(a.ts)}
-          </span>
-        </div>
-      ))}
-      {audit.filter((a) => who === "All" || a.user === who).length > limit && (
+      {rows.map((a) => {
+        const editable = a.typeKey && a.recordId && (data?.[a.typeKey] || []).some((r) => r.id === a.recordId);
+        return (
+          <div key={a.id} style={{ borderBottom: "1px solid #E4E1D6", padding: "8px 0" }}>
+            <div className="rain-row" style={{ padding: 0, border: "none" }}>
+              <span>
+                <b>{a.user}</b> — {a.action}
+                {a.summary ? ": " + a.summary : ""}
+              </span>
+              <span className="rain-mm" style={{ color: "#8B887A", fontWeight: 600, whiteSpace: "nowrap" }}>
+                {fmt(a.ts)}
+              </span>
+            </div>
+            {editable && (
+              <div className="btn-row" style={{ marginTop: 6 }}>
+                <button className="mini-btn" onClick={() => onEdit(a.typeKey, a.recordId)}>
+                  Edit
+                </button>
+                <button className="mini-btn danger" onClick={() => onDelete(a.typeKey, a.recordId)}>
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {audit.filter(matches).length > limit && (
         <button className="mini-btn" style={{ marginTop: 8 }} onClick={() => setLimit(limit + 200)}>
           Show more
         </button>
