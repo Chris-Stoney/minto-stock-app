@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { supabase } from "./lib/supabaseBackend.js";
+import { VAPID_PUBLIC_KEY } from "./lib/pushConfig.js";
 
 /* ============================================================
    MINTO PASTORAL CO — Farm Records (Prototype)
@@ -186,6 +188,15 @@ const PADDOCKS = {
 const pdkArea = (prop, name) => {
   const hit = (PADDOCKS[prop] || []).find((x) => x[0] === name);
   return hit ? hit[1] : 0;
+};
+
+// Push subscription's applicationServerKey needs the VAPID public key as raw
+// bytes, not the base64url string form it's stored/shipped in.
+const urlBase64ToUint8Array = (base64url) => {
+  const padding = "=".repeat((4 - (base64url.length % 4)) % 4);
+  const base64 = (base64url + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 };
 
 // One consistent description, always assembled in the same order:
@@ -964,15 +975,77 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
 
 const MAX_CHAT_MSGS = 50;
 
-function ChatScreen({ property, me, onSetMe, properties }) {
+function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail }) {
   const [msgs, setMsgs] = useState([]);
   const [photos, setPhotos] = useState({});
   const [text, setText] = useState("");
   const [nameInput, setNameInput] = useState("");
   const [locationInput, setLocationInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
   const fileRef = useRef(null);
   const key = "mp2:chat:" + property;
+
+  useEffect(() => {
+    (async () => {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        setPushOn(!!sub);
+      } catch {}
+    })();
+  }, []);
+
+  const togglePush = async () => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      alert("Push notifications aren't supported on this browser/device.");
+      return;
+    }
+    setPushBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (pushOn) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          if (supabase) await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+          await sub.unsubscribe();
+        }
+        setPushOn(false);
+      } else {
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") {
+          alert("Notifications were blocked — check your browser's site settings to allow them.");
+          return;
+        }
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+        const json = sub.toJSON();
+        if (supabase && userEmail) {
+          await supabase.from("push_subscriptions").upsert(
+            {
+              user_email: userEmail,
+              me_name: me || "",
+              property: myProperty || null,
+              endpoint: json.endpoint,
+              p256dh: json.keys.p256dh,
+              auth: json.keys.auth,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "endpoint" }
+          );
+        }
+        setPushOn(true);
+      }
+    } catch (e) {
+      alert("Couldn't change notification settings — try again.");
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const load = async () => {
     const list = await loadKey(key, []);
@@ -1044,6 +1117,19 @@ function ChatScreen({ property, me, onSetMe, properties }) {
     setMsgs(next);
     setText("");
     setBusy(false);
+    // Fire-and-forget: a failed push shouldn't block sending the message itself.
+    (async () => {
+      try {
+        if (!supabase) return;
+        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        if (!token) return;
+        await fetch("/.netlify/functions/send-chat-push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ channel: property, author: msg.author, text: msg.text }),
+        });
+      } catch {}
+    })();
   };
 
   const react = async (msgId, emoji) => {
@@ -1118,6 +1204,11 @@ function ChatScreen({ property, me, onSetMe, properties }) {
 
   return (
     <>
+      <div className="btn-row" style={{ justifyContent: "flex-start", marginBottom: 8 }}>
+        <button className="mini-btn" disabled={pushBusy} onClick={togglePush}>
+          {pushOn ? "🔔 Notifications on — tap to turn off" : "🔕 Turn on notifications"}
+        </button>
+      </div>
       <div className="chat-list">
         {msgs.length === 0 && <div className="empty big">No messages yet — say hello and start the {property === "General" ? "company" : property} chat.</div>}
         {[...msgs].reverse().map((m) => (
@@ -1221,6 +1312,10 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   }, []);
   const ask = (message, onYes) => setConfirm({ message, onYes });
   const canApprove = !settings.approvers?.length || (me && settings.approvers.includes(me));
+  // Which property (if any) this login is tagged to in Team, e.g. "Benny — Minto" -> "Minto".
+  // Used to scope chat push notifications to General plus this person's own property.
+  const myTeamEntry = (settings.team || []).find((t) => t.split(" — ")[0].trim() === me);
+  const myProperty = myTeamEntry ? myTeamEntry.split(" — ")[1]?.trim() : null;
   const [propFilter, setPropFilter] = useState("All");
 
   useEffect(() => {
@@ -3207,6 +3302,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               property={chatChannel}
               me={me}
               properties={properties}
+              myProperty={myProperty}
+              userEmail={userEmail}
               onSetMe={(name) => {
                 setMe(name);
                 try {

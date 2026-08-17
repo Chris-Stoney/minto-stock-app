@@ -9,6 +9,11 @@ import Gate from "./Gate.jsx";
 // otherwise fall back to this device's localStorage.
 installStorage(supabase ? supabaseBackend : localStorageBackend);
 
+// Registered for push notifications only — no offline caching.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <Gate />
