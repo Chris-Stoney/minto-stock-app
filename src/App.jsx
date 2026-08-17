@@ -3406,7 +3406,6 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <div className="section-head">
               <h2>Setup</h2>
             </div>
-            <ActivityLog audit={data.audit || []} data={data} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} />
             <section className="card">
               <div className="card-title">Properties & PICs</div>
               {properties.map((p) => (
@@ -3599,6 +3598,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 </div>
               )}
             </section>
+            <ActivityLog audit={data.audit || []} data={data} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} />
           </>
         )}
       </main>
