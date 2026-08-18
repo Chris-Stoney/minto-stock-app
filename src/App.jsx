@@ -59,6 +59,7 @@ const DEFAULT_TEAM = [
   "Soph — Wirrealpa (SA)",
 ];
 const DEFAULT_CONTRACTORS = [];
+const TEAM_ROLES = ["GM", "Contract Operations Manager", "Office", "Stock Agent", "Tech"];
 const SPEND_TYPES = ["CAP EX", "Maintenance"];
 const ASSET_INFRA_BRANCHED_TYPES = ["spendRequest", "maint"];
 const DEFAULT_ASSET_TYPES = ["Vehicles", "Machinery / Equipment"];
@@ -3882,11 +3883,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 fields={[
                   { key: "name", type: "text", placeholder: "Name…" },
                   { key: "location", type: "select", placeholder: "Property / Contractor…", options: [...properties, "Stoney", "Contractor"] },
+                  { key: "role", type: "select", placeholder: "Role (optional)…", options: TEAM_ROLES, optional: true },
                 ]}
-                combine={(v) => v.name.trim() + " — " + v.location}
+                combine={(v) => v.name.trim() + " — " + v.location + (v.role ? " — " + v.role : "")}
                 parse={(item) => {
-                  const [name, ...rest] = item.split(" — ");
-                  return { name: name.trim(), location: rest.join(" — ").trim() };
+                  const parts = item.split(" — ");
+                  return { name: (parts[0] || "").trim(), location: (parts[1] || "").trim(), role: (parts[2] || "").trim() };
                 }}
                 onChange={(list) => {
                   const next = { ...settings, team: list };
