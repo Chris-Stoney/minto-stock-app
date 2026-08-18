@@ -27,6 +27,7 @@ const KEYS = {
   woolsale: "mp2:woolsale",
   menu: "mp2:menu",
   calendar: "mp2:calendar",
+  spendRequest: "mp2:spendRequest",
   audit: "mp2:audit",
   settings: "mp2:settings-v5",
 };
@@ -58,6 +59,9 @@ const DEFAULT_TEAM = [
   "Soph — Wirrealpa (SA)",
 ];
 const DEFAULT_CONTRACTORS = [];
+const SPEND_TYPES = ["CAP EX", "Maintenance"];
+const DEFAULT_ASSET_TYPES = ["Vehicles", "Machinery / Equipment"];
+const DEFAULT_PROPERTY_ELEMENTS = ["Water", "Yards", "Fence", "Buildings"];
 
 const DEFAULT_STATUSES = {
   Sheep: ["Early", "Late", "Twins", "Singles", "Wet", "Dry", "Empty", "PTE", "Lambed", "Stud", "Ewes", "Rams", "MS"],
@@ -284,6 +288,7 @@ const TAG = {
   woolsale: "#8A7B5C",
   menu: "#B0743A",
   calendar: "#C25E1F",
+  spendRequest: "#2E7F8F",
 };
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -568,6 +573,23 @@ const RECORD_TYPES = {
       { key: "cost", label: "Cost ($)", type: "number", optional: true },
     ],
   },
+  spendRequest: {
+    label: "Spend requests",
+    single: "Spend request",
+    tag: TAG.spendRequest,
+    fields: [
+      { key: "date", label: "Date", type: "date" },
+      { key: "category", label: "Category", type: "select", options: ["Assets", "Infrastructure"] },
+      { key: "assetType", label: "Asset type", type: "select", optionsFrom: "assetTypes", showIf: (v) => v.category === "Assets" },
+      { key: "assetId", label: "Asset", type: "asset", showIf: (v) => v.category === "Assets" },
+      { key: "meterReading", label: "Meter reading (hours or km)", type: "number", optional: true, showIf: (v) => v.category === "Assets" },
+      { key: "faultNote", label: "Fault note", type: "textarea", optional: true, showIf: (v) => v.category === "Assets" },
+      { key: "property", label: "Property", type: "property", showIf: (v) => v.category === "Infrastructure" },
+      { key: "propertyElement", label: "Property element", type: "select", optionsFrom: "propertyElements", showIf: (v) => v.category === "Infrastructure" },
+      { key: "locationText", label: "Describe the location on the property", type: "text", showIf: (v) => v.category === "Infrastructure" },
+      { key: "isMajorProject", label: "Major project — needs a Purchase Order?", type: "select", options: ["No", "Yes — raise a PO"] },
+    ],
+  },
   pasture: {
     label: "Pasture",
     single: "Pasture record",
@@ -598,7 +620,7 @@ const Chip = ({ color, children }) => (
   </span>
 );
 
-const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes, teamNames }) => {
+const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes, teamNames, assets, assetTypes, propertyElements, vals }) => {
   const common = {
     value: value ?? "",
     onChange: (e) => onChange(f.key, e.target.value),
@@ -618,6 +640,8 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
     );
   if (f.type === "select" || f.type === "property" || f.type === "mob" || f.type === "class" || f.type === "breed") {
     let opts = f.options || [];
+    if (f.optionsFrom === "assetTypes") opts = assetTypes || [];
+    if (f.optionsFrom === "propertyElements") opts = propertyElements || [];
     if (f.type === "property") opts = properties;
     if (f.type === "breed")
       return (
@@ -685,6 +709,25 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
         </select>
       </div>
     );
+  if (f.type === "asset") {
+    const assetType = vals?.assetType;
+    const options = (assets || []).filter((a) => !assetType || a.assetType === assetType);
+    return (
+      <div className="f-row">
+        {label}
+        <select {...common}>
+          <option value="">Select asset…</option>
+          {options.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+              {a.property ? " — " + a.property : ""}
+            </option>
+          ))}
+        </select>
+        {(assets || []).length === 0 && <p className="note">No assets registered yet — add them in Setup → Assets.</p>}
+      </div>
+    );
+  }
   return (
     <div className="f-row">
       {label}
@@ -699,14 +742,31 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
 
 /* ------------------ Generic record form ------------------ */
 
-function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames, breedList = [], onSave, onCancel, defaults, isEditing }) {
+function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames, breedList = [], assets, assetTypes, propertyElements, onSave, onCancel, defaults, isEditing }) {
   const cfg = RECORD_TYPES[typeKey];
   const [vals, setVals] = useState(() => {
     const init = { date: todayStr(), ...(defaults || {}) };
     return init;
   });
   const [err, setErr] = useState("");
-  const set = (k, v) => setVals((s) => ({ ...s, [k]: v }));
+  const set = (k, v) =>
+    setVals((s) => {
+      const next = { ...s, [k]: v };
+      // Spend requests: switching branch clears the other branch's fields
+      // instead of leaving stale hidden values behind.
+      if (typeKey === "spendRequest" && k === "category") {
+        const assetFields = ["assetType", "assetId", "meterReading", "faultNote"];
+        const infraFields = ["property", "propertyElement", "locationText"];
+        (v === "Assets" ? infraFields : assetFields).forEach((f) => delete next[f]);
+      }
+      // Changing asset type invalidates whichever specific asset was picked
+      // under the old type — the asset dropdown re-filters, but the stale id
+      // would otherwise still pass validation and submit mismatched.
+      if (typeKey === "spendRequest" && k === "assetType") {
+        delete next.assetId;
+      }
+      return next;
+    });
 
   const visible = cfg.fields.filter((f) => !f.showIf || f.showIf(vals));
   const mobProp = vals.mobId ? mobs.find((m) => m.id === vals.mobId)?.property : "";
@@ -793,6 +853,10 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
           properties={properties}
           classes={classes}
           teamNames={teamNames}
+          assets={assets}
+          assetTypes={assetTypes}
+          propertyElements={propertyElements}
+          vals={vals}
         />
         )
       )}
@@ -1448,6 +1512,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     musters: [],
     menu: [],
     calendar: [],
+    spendRequest: [],
     marking: [],
     weaning: [],
     pregtest: [],
@@ -1456,7 +1521,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     woolsale: [],
     audit: [],
   });
-  const [settings, setSettings] = useState({ properties: DEFAULT_PROPERTIES, classes: DEFAULT_CLASSES, pics: {}, breeds: DEFAULT_BREEDS, tagColours: DEFAULT_TAGS, statuses: DEFAULT_STATUSES, approvers: [], team: DEFAULT_TEAM, contractors: DEFAULT_CONTRACTORS, customPaddocks: {} });
+  const [settings, setSettings] = useState({ properties: DEFAULT_PROPERTIES, classes: DEFAULT_CLASSES, pics: {}, breeds: DEFAULT_BREEDS, tagColours: DEFAULT_TAGS, statuses: DEFAULT_STATUSES, approvers: [], team: DEFAULT_TEAM, contractors: DEFAULT_CONTRACTORS, customPaddocks: {}, assets: [], assetTypes: DEFAULT_ASSET_TYPES, propertyElements: DEFAULT_PROPERTY_ELEMENTS });
   const [activeForm, setActiveForm] = useState(null); // e.g. "rain", "mob", {type:"moves", defaults}
   const [recordView, setRecordView] = useState(null); // record type key
   const [editMob, setEditMob] = useState(null);
@@ -1511,16 +1576,17 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         loadKey(KEYS.shearing, []),
         loadKey(KEYS.woolsale, []),
         loadKey(KEYS.calendar, []),
+        loadKey(KEYS.spendRequest, []),
         loadKey(KEYS.settings, null),
       ]);
       // Paint fast: if storage is slow (rate limits etc.), fall back to the built-in baseline after 4s
       const timeout = new Promise((res) => setTimeout(() => res("__SLOW__"), 4000));
       const raced = await Promise.race([loadAll, timeout]);
-      let mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, st;
+      let mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, spendRequest, st;
       if (raced === "__SLOW__") {
         setStorageMode("memory");
-        [mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, st] =
-          [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], null];
+        [mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, spendRequest, st] =
+          [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], null];
         // keep listening: if storage answers later, quietly upgrade
         loadAll.then((vals) => {
           try {
@@ -1529,7 +1595,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           } catch {}
         });
       } else {
-        [mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, st] = raced;
+        [mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, spendRequest, st] = raced;
       }
       const fromBaseline = (cur, k) => {
         if (cur && cur.length) return cur;
@@ -1557,6 +1623,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         shearing: fromBaseline(shearing, "shearing"),
         woolsale: fromBaseline(woolsale, "woolsale"),
         calendar: fromBaseline(calendar, "calendar"),
+        spendRequest: fromBaseline(spendRequest, "spendRequest"),
         audit: auditData,
       });
       setSettings({
@@ -1570,6 +1637,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         team: st?.team || DEFAULT_TEAM,
         contractors: st?.contractors || DEFAULT_CONTRACTORS,
         customPaddocks: st?.customPaddocks || {},
+        assets: st?.assets || [],
+        assetTypes: st?.assetTypes || DEFAULT_ASSET_TYPES,
+        propertyElements: st?.propertyElements || DEFAULT_PROPERTY_ELEMENTS,
       });
       try {
         const meR = await window.storage.get("mp2:me", false);
@@ -1596,7 +1666,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const keys = [
       "mobs", "moves", "health", "rain", "trucking", "maint", "pasture", "adjust",
       "orders", "musters", "menu", "marking", "weaning", "pregtest", "pdkuse",
-      "shearing", "woolsale", "calendar", "audit",
+      "shearing", "woolsale", "calendar", "spendRequest", "audit",
     ];
     const refresh = async () => {
       if (STORAGE.mode === "memory") return;
@@ -2024,6 +2094,39 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       const mobs = data.mobs.map((m) => (m.id === rec.mobId ? { ...m, head: num(m.head) + delta } : m));
       setAndSave("mobs", mobs);
     }
+    if (typeKey === "spendRequest") {
+      // Keep isMajorProject as the select's own string (matching how "terminal"
+      // and similar yes/no fields work elsewhere) — converting it to a boolean
+      // broke re-editing, since the saved value no longer matched either option.
+      const isMajor = rec.isMajorProject === "Yes — raise a PO";
+      const asset = rec.assetId ? (settings.assets || []).find((a) => a.id === rec.assetId) : null;
+      // rec.linkedOrderId survives edits (it flows through defaults -> vals since
+      // it isn't a form field), so only create one the first time this request
+      // is flagged major — otherwise every edit-resave minted a duplicate PO.
+      if (isMajor && !rec.linkedOrderId) {
+        const orderId = uid();
+        const itemDesc =
+          rec.category === "Assets"
+            ? (asset?.name || "Asset") + (rec.faultNote ? " — " + rec.faultNote : "")
+            : (rec.propertyElement || "Infrastructure") + " — " + (rec.locationText || "");
+        const order = {
+          id: orderId,
+          date: rec.date,
+          property: rec.property || asset?.property || "",
+          category: rec.spendType === "CAP EX" ? "Capex" : "Maintenance",
+          supplier: "",
+          item: itemDesc,
+          amount: 0,
+          notes: "Auto-created from a spend request — add supplier and amount before approving.",
+          status: "Pending",
+          requestedBy: me || "",
+          createdAt: Date.now(),
+        };
+        setAndSave("orders", [order, ...data.orders]);
+        rec.linkedOrderId = orderId;
+        rec.poNumber = "PO-" + orderId.slice(0, 6).toUpperCase();
+      }
+    }
     setAndSave(typeKey, [rec, ...data[typeKey]]);
     try {
       const s = summarise(typeKey, rec);
@@ -2166,7 +2269,16 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 
   const deleteRecord = (typeKey, id) => {
     const reverses = ["trucking", "adjust", "moves", "marking", "weaning", "pregtest"].includes(typeKey);
-    ask(reverses ? "Undo this entry? Stock numbers and paddocks will be put back." : "Delete this record?", () => {
+    const existing = (data[typeKey] || []).find((r) => r.id === id);
+    // Deleting a spend request never touches its linked PO — it may already be
+    // approved/paid — so warn instead of silently leaving it disconnected.
+    const message =
+      typeKey === "spendRequest" && existing?.linkedOrderId
+        ? `Delete this request? Its linked Purchase Order (${existing.poNumber || "already raised"}) will NOT be deleted — remove it separately from Recs → Purchase orders if needed.`
+        : reverses
+        ? "Undo this entry? Stock numbers and paddocks will be put back."
+        : "Delete this record?";
+    ask(message, () => {
       const rec = reverseRecordEffects(typeKey, id);
       try {
         const s = rec ? summarise(typeKey, rec) : { title: id, sub: "" };
@@ -2241,7 +2353,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const activity = useMemo(() => {
     const cutoff = Date.now() - 3 * 86400000; // last 3 days, then it expires
     const all = [];
-    ["moves", "health", "rain", "trucking", "maint", "pasture", "adjust", "orders", "musters", "menu", "calendar", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
+    ["moves", "health", "rain", "trucking", "maint", "pasture", "adjust", "orders", "musters", "menu", "calendar", "spendRequest", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
       byProp(data[k]).forEach((r) => {
         if ((r.createdAt || 0) >= cutoff) all.push({ ...r, _type: k });
       })
@@ -2331,6 +2443,19 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         };
       case "calendar":
         return { title: r.title || "Calendar event", sub: [r.property, r.notes].filter(Boolean).join(" · ") };
+      case "spendRequest": {
+        const spendAsset = r.assetId ? (settings.assets || []).find((a) => a.id === r.assetId) : null;
+        return {
+          title: `${r.spendType || "Spend"} — ${r.category}`,
+          sub: [
+            r.category === "Assets" ? spendAsset?.name : r.propertyElement,
+            r.property,
+            r.isMajorProject === "Yes — raise a PO" ? "PO required" + (r.poNumber ? " · " + r.poNumber : "") : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        };
+      }
       case "maint":
         return { title: `${r.asset} — ${r.property}`, sub: r.work };
       case "pasture":
@@ -2511,6 +2636,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             classes={settings.classes}
             breedList={settings.breeds || []}
             teamNames={(settings.team || []).map((t) => t.split(" — ")[0].trim())}
+            assets={settings.assets || []}
+            assetTypes={settings.assetTypes || []}
+            propertyElements={settings.propertyElements || []}
             onSave={(rec) => {
               const typeKey = activeForm.type || activeForm;
               if (activeForm.editId) {
@@ -3032,6 +3160,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <div className="section-head">
               <h2>Records</h2>
             </div>
+            <button className="rec-cat" onClick={() => setRecordView("wool")}>
+              <span className="act-dot lg" style={{ background: TAG.shearing }} />
+              <span className="rec-cat-label">Wool (shearing & sales)</span>
+              <span className="rec-cat-n">{byProp(data.shearing).length + data.woolsale.length}</span>
+              <span className="rec-cat-arrow">›</span>
+            </button>
             {Object.entries(RECORD_TYPES).map(([k, cfg]) => (
               <button className="rec-cat" key={k} onClick={() => setRecordView(k)}>
                 <span className="act-dot lg" style={{ background: cfg.tag }} />
@@ -3043,17 +3177,101 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           </>
         )}
 
-        {tab === "records" && recordView && (
+        {tab === "records" && recordView === "wool" && (
           <>
             <div className="section-head">
               <button className="back" onClick={() => setRecordView(null)}>
                 ‹ Records
               </button>
-              <button className="btn primary sm" onClick={() => setActiveForm(recordView)}>
-                + Add
+              <button className="btn primary sm" onClick={() => setActiveForm("woolsale")}>
+                🚚 Truck wool
               </button>
             </div>
+            <h2 className="rec-h">Wool (shearing & sales)</h2>
+            {(() => {
+              const shear = byProp(data.shearing);
+              const sales = data.woolsale;
+              const fy = (r) => new Date(r.date).getTime() >= new Date("2026-07-01").getTime();
+              const sfy = shear.filter(fy);
+              const shorn = sfy.reduce((a, r) => a + num(r.tally), 0);
+              const kg = sfy.reduce((a, r) => a + num(r.totalKg), 0);
+              const cost = sfy.reduce((a, r) => a + num(r.cost), 0);
+              const micronW = kg > 0 ? sfy.reduce((a, r) => a + num(r.micron) * num(r.totalKg), 0) / sfy.filter((r) => num(r.micron) > 0).reduce((a, r) => a + num(r.totalKg), 0.0001) : 0;
+              const outKg = data.woolsale.reduce((a, r) => a + num(r.kg), 0);
+              const allKg = data.shearing.reduce((a, r) => a + num(r.totalKg), 0);
+              const onHand = allKg - outKg;
+              const outBales = data.woolsale.reduce((a, r) => a + num(r.bales), 0);
+              const allBales = data.shearing.reduce((a, r) => a + num(r.bales), 0);
+              return (
+                <>
+                  <section className="card wool-card">
+                    <div className="card-title">This season (from 1 Jul)</div>
+                    <div className="rain-row"><span>Sheep shorn</span><span className="rain-mm">{shorn.toLocaleString()}</span></div>
+                    <div className="rain-row"><span>Wool</span><span className="rain-mm">{Math.round(kg).toLocaleString()} kg</span></div>
+                    <div className="rain-row"><span>Average cut</span><span className="rain-mm">{shorn > 0 ? (kg / shorn).toFixed(1) : "0"} kg/hd</span></div>
+                    {micronW > 0 && <div className="rain-row"><span>Average micron</span><span className="rain-mm">{micronW.toFixed(1)}µ</span></div>}
+                    {cost > 0 && <div className="rain-row"><span>Shearing cost</span><span className="rain-mm">${Math.round(cost).toLocaleString()}{shorn > 0 ? " ($" + (cost / shorn).toFixed(2) + "/hd)" : ""}</span></div>}
+                  </section>
+                  <section className="card wool-card">
+                    <div className="card-title">Wool on hand</div>
+                    <div className="rain-row"><span>In the shed</span><span className="rain-mm">{Math.round(onHand).toLocaleString()} kg{allBales - outBales > 0 ? " · " + (allBales - outBales) + " bales" : ""}</span></div>
+                    <div className="rain-row"><span>Trucked to date</span><span>{Math.round(outKg).toLocaleString()} kg{outBales > 0 ? " · " + outBales + " bales" : ""}</span></div>
+                  </section>
+                </>
+              );
+            })()}
+
+            <section className="card">
+              <div className="card-title">Shearing records</div>
+              {byProp(data.shearing).length === 0 && <div className="empty">Nothing shorn yet.</div>}
+              {byProp(data.shearing).map((r) => {
+                const su = summarise("shearing", r);
+                return (
+                  <div className="act-row" key={r.id}>
+                    <span className="act-dot" style={{ background: TAG.shearing }} />
+                    <div className="act-body">
+                      <div className="act-title">{su.title}</div>
+                      <div className="act-sub">{fmtDate(r.date)} · {su.sub}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+            <section className="card">
+              <div className="card-title">Wool trucked</div>
+              {data.woolsale.length === 0 && <div className="empty">No wool trucked yet.</div>}
+              {data.woolsale.map((r) => {
+                const su = summarise("woolsale", r);
+                return (
+                  <div className="act-row" key={r.id}>
+                    <span className="act-dot" style={{ background: TAG.woolsale }} />
+                    <div className="act-body">
+                      <div className="act-title">{su.title}</div>
+                      <div className="act-sub">{fmtDate(r.date)} · {su.sub}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          </>
+        )}
+
+        {tab === "records" && recordView && recordView !== "wool" && (
+          <>
+            <div className="section-head">
+              <button className="back" onClick={() => setRecordView(null)}>
+                ‹ Records
+              </button>
+              {recordView !== "spendRequest" && (
+                <button className="btn primary sm" onClick={() => setActiveForm(recordView)}>
+                  + Add
+                </button>
+              )}
+            </div>
             <h2 className="rec-h">{RECORD_TYPES[recordView].label}</h2>
+            {recordView === "spendRequest" && (
+              <p className="note">Add new spend requests from the Maint tab — it sets Cap Ex or Maintenance for you, which this list can't do.</p>
+            )}
             {byProp(data[recordView]).length === 0 && <div className="empty big">No {RECORD_TYPES[recordView].label.toLowerCase()} yet.</div>}
             {byProp(data[recordView]).map((r) => {
               const s = summarise(recordView, r);
@@ -3398,75 +3616,76 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           </>
         )}
 
-        {/* ============ WOOL ============ */}
-        {tab === "wool" && (
+        {/* ============ MAINTENANCE / SPEND ============ */}
+        {tab === "maint" && (
           <>
             <div className="section-head">
-              <h2>Shearing & wool</h2>
-              <button className="btn primary sm" onClick={() => setActiveForm("woolsale")}>
-                🚚 Truck wool
-              </button>
+              <h2>Maintenance & Cap Ex</h2>
             </div>
-            {(() => {
-              const shear = byProp(data.shearing);
-              const sales = data.woolsale;
-              const fy = (r) => new Date(r.date).getTime() >= new Date("2026-07-01").getTime();
-              const sfy = shear.filter(fy);
-              const shorn = sfy.reduce((a, r) => a + num(r.tally), 0);
-              const kg = sfy.reduce((a, r) => a + num(r.totalKg), 0);
-              const cost = sfy.reduce((a, r) => a + num(r.cost), 0);
-              const micronW = kg > 0 ? sfy.reduce((a, r) => a + num(r.micron) * num(r.totalKg), 0) / sfy.filter((r) => num(r.micron) > 0).reduce((a, r) => a + num(r.totalKg), 0.0001) : 0;
-              const outKg = data.woolsale.reduce((a, r) => a + num(r.kg), 0);
-              const allKg = data.shearing.reduce((a, r) => a + num(r.totalKg), 0);
-              const onHand = allKg - outKg;
-              const outBales = data.woolsale.reduce((a, r) => a + num(r.bales), 0);
-              const allBales = data.shearing.reduce((a, r) => a + num(r.bales), 0);
+            <section className="card">
+              <div className="card-title">Raise a spend request</div>
+              <p className="note">Choose the spend type to start — you'll then pick Assets or Infrastructure and only see the fields that apply.</p>
+              <div className="btn-row" style={{ justifyContent: "flex-start" }}>
+                {SPEND_TYPES.map((spendType) => (
+                  <button
+                    key={spendType}
+                    className="btn primary sm"
+                    onClick={() => setActiveForm({ type: "spendRequest", defaults: { spendType } })}
+                  >
+                    {spendType === "CAP EX" ? "Cap Ex" : spendType}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            {SPEND_TYPES.map((spendType) => {
+              const reqs = byProp(data.spendRequest).filter((r) => r.spendType === spendType);
               return (
-                <>
-                  <section className="card wool-card">
-                    <div className="card-title">This season (from 1 Jul)</div>
-                    <div className="rain-row"><span>Sheep shorn</span><span className="rain-mm">{shorn.toLocaleString()}</span></div>
-                    <div className="rain-row"><span>Wool</span><span className="rain-mm">{Math.round(kg).toLocaleString()} kg</span></div>
-                    <div className="rain-row"><span>Average cut</span><span className="rain-mm">{shorn > 0 ? (kg / shorn).toFixed(1) : "0"} kg/hd</span></div>
-                    {micronW > 0 && <div className="rain-row"><span>Average micron</span><span className="rain-mm">{micronW.toFixed(1)}µ</span></div>}
-                    {cost > 0 && <div className="rain-row"><span>Shearing cost</span><span className="rain-mm">${Math.round(cost).toLocaleString()}{shorn > 0 ? " ($" + (cost / shorn).toFixed(2) + "/hd)" : ""}</span></div>}
-                  </section>
-                  <section className="card wool-card">
-                    <div className="card-title">Wool on hand</div>
-                    <div className="rain-row"><span>In the shed</span><span className="rain-mm">{Math.round(onHand).toLocaleString()} kg{allBales - outBales > 0 ? " · " + (allBales - outBales) + " bales" : ""}</span></div>
-                    <div className="rain-row"><span>Trucked to date</span><span>{Math.round(outKg).toLocaleString()} kg{outBales > 0 ? " · " + outBales + " bales" : ""}</span></div>
-                  </section>
-                </>
+                <section className="card" key={spendType}>
+                  <div className="card-title">{spendType} requests</div>
+                  {reqs.length === 0 && <div className="empty">No {spendType.toLowerCase()} requests yet.</div>}
+                  {reqs.map((r) => {
+                    const su = summarise("spendRequest", r);
+                    return (
+                      <div className="rain-row" key={r.id}>
+                        <span>
+                          {su.title}
+                          <span className="whp-date"> · {fmtDate(r.date)}{su.sub ? " · " + su.sub : ""}</span>
+                        </span>
+                        <span className="btn-row" style={{ marginTop: 0 }}>
+                          <button className="mini-btn" onClick={() => editRecordFromLog("spendRequest", r.id)}>
+                            Edit
+                          </button>
+                          <button className="mini-btn danger" onClick={() => deleteRecordFromLog("spendRequest", r.id)}>
+                            ✕
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </section>
               );
-            })()}
+            })}
 
             <section className="card">
-              <div className="card-title">Shearing records</div>
-              {byProp(data.shearing).length === 0 && <div className="empty">Nothing shorn yet.</div>}
-              {byProp(data.shearing).map((r) => {
-                const su = summarise("shearing", r);
+              <div className="card-title">
+                Maintenance work log
+                <button className="btn primary sm" onClick={() => setActiveForm("maint")}>
+                  + Log work
+                </button>
+              </div>
+              <p className="note">Separate from spend requests — this is a record of work actually done (asset, work, cost).</p>
+              {byProp(data.maint).length === 0 && <div className="empty">Nothing logged yet.</div>}
+              {byProp(data.maint).map((r) => {
+                const su = summarise("maint", r);
                 return (
                   <div className="act-row" key={r.id}>
-                    <span className="act-dot" style={{ background: TAG.shearing }} />
+                    <span className="act-dot" style={{ background: TAG.maint }} />
                     <div className="act-body">
                       <div className="act-title">{su.title}</div>
-                      <div className="act-sub">{fmtDate(r.date)} · {su.sub}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </section>
-            <section className="card">
-              <div className="card-title">Wool trucked</div>
-              {data.woolsale.length === 0 && <div className="empty">No wool trucked yet.</div>}
-              {data.woolsale.map((r) => {
-                const su = summarise("woolsale", r);
-                return (
-                  <div className="act-row" key={r.id}>
-                    <span className="act-dot" style={{ background: TAG.woolsale }} />
-                    <div className="act-body">
-                      <div className="act-title">{su.title}</div>
-                      <div className="act-sub">{fmtDate(r.date)} · {su.sub}</div>
+                      <div className="act-sub">
+                        {fmtDate(r.date)} · {su.sub}
+                      </div>
                     </div>
                   </div>
                 );
@@ -3596,11 +3815,55 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <section className="card">
               <div className="card-title">Team</div>
               <p className="note">Everyone on the payroll (and the kids). Format: Name — where they are. Used for muster crew picks.</p>
-              <TeamEditor
+              <ListEditor
+                title="Team"
                 list={settings.team || []}
-                properties={properties}
+                fields={[
+                  { key: "name", type: "text", placeholder: "Name…" },
+                  { key: "location", type: "select", placeholder: "Property / Contractor…", options: [...properties, "Stoney", "Contractor"] },
+                ]}
+                combine={(v) => v.name.trim() + " — " + v.location}
                 onChange={(list) => {
                   const next = { ...settings, team: list };
+                  setSettings(next);
+                  saveKey(KEYS.settings, next);
+                }}
+              />
+            </section>
+            <section className="card">
+              <div className="card-title">Assets</div>
+              <p className="note">Vehicles, machinery and equipment — used by the Cap Ex / Maintenance spend request forms.</p>
+              <ListEditor
+                title="Assets"
+                list={settings.assets || []}
+                fields={[
+                  { key: "name", type: "text", placeholder: "Asset name (e.g. Ute 1)…" },
+                  { key: "assetType", type: "select", placeholder: "Asset type…", options: settings.assetTypes || DEFAULT_ASSET_TYPES },
+                  { key: "property", type: "select", placeholder: "Property (optional)…", options: properties, optional: true },
+                ]}
+                combine={(v) => ({ id: uid(), name: v.name.trim(), assetType: v.assetType, property: v.property || "" })}
+                renderItem={(a) => `${a.name} — ${a.assetType}${a.property ? " — " + a.property : ""}`}
+                keyFor={(a) => a.id}
+                onChange={(list) => {
+                  const next = { ...settings, assets: list };
+                  setSettings(next);
+                  saveKey(KEYS.settings, next);
+                }}
+              />
+              <ListEditor
+                title="Asset types"
+                list={settings.assetTypes || DEFAULT_ASSET_TYPES}
+                onChange={(list) => {
+                  const next = { ...settings, assetTypes: list };
+                  setSettings(next);
+                  saveKey(KEYS.settings, next);
+                }}
+              />
+              <ListEditor
+                title="Property elements"
+                list={settings.propertyElements || DEFAULT_PROPERTY_ELEMENTS}
+                onChange={(list) => {
+                  const next = { ...settings, propertyElements: list };
                   setSettings(next);
                   saveKey(KEYS.settings, next);
                 }}
@@ -3612,8 +3875,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 Only these names can approve or decline purchase orders (e.g. Finance Manager, General Manager). Names
                 must match the name entered in Chat. Leave empty to let anyone approve while testing.
               </p>
-              <ClassEditor
-                species="Approvers"
+              <ListEditor
+                title="Approvers"
                 list={settings.approvers || []}
                 onChange={(list) => {
                   const next = { ...settings, approvers: list };
@@ -3629,8 +3892,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 Mob descriptions are built the same way every time: Breed · Tag · Class · Status · Origin. Add to these
                 lists as needed — everyone picks from the same options.
               </p>
-              <ClassEditor
-                species="Breeds"
+              <ListEditor
+                title="Breeds"
                 list={settings.breeds || []}
                 onChange={(list) => {
                   const next = { ...settings, breeds: list };
@@ -3638,8 +3901,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   saveKey(KEYS.settings, next);
                 }}
               />
-              <ClassEditor
-                species="Tag colours"
+              <ListEditor
+                title="Tag colours"
                 list={settings.tagColours || []}
                 onChange={(list) => {
                   const next = { ...settings, tagColours: list };
@@ -3648,9 +3911,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 }}
               />
               {["Cattle", "Sheep"].map((sp) => (
-                <ClassEditor
+                <ListEditor
                   key={sp}
-                  species={sp + " classes"}
+                  title={sp + " classes"}
                   list={settings.classes?.[sp] || []}
                   onChange={(list) => {
                     const next = { ...settings, classes: { ...settings.classes, [sp]: list } };
@@ -3660,9 +3923,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 />
               ))}
               {["Cattle", "Sheep"].map((sp) => (
-                <ClassEditor
+                <ListEditor
                   key={sp + "st"}
-                  species={sp + " statuses"}
+                  title={sp + " statuses"}
                   list={settings.statuses?.[sp] || []}
                   onChange={(list) => {
                     const next = { ...settings, statuses: { ...settings.statuses, [sp]: list } };
@@ -3790,7 +4053,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           ["home", "Yards"],
           ["paddocks", "Stock"],
           ["rain", "Rain"],
-          ["wool", "Wool"],
+          ["maint", "Maint"],
           ["calendar", "Cal"],
           ["chat", "Chat"],
           ["records", "Recs"],
@@ -3958,72 +4221,55 @@ function FooImport({ properties, onImport }) {
   );
 }
 
-function TeamEditor({ list, onChange, properties }) {
-  const [name, setName] = useState("");
-  const [loc, setLoc] = useState("");
-  const locations = [...properties, "Stoney", "Contractor"];
+// Shared by every "admin-managed list" in Setup (Team, Assets, Breeds, Tag
+// colours, classes, statuses, approvers, asset types, property elements).
+// Defaults to a single plain-text field producing a plain string, matching
+// the simple cases; pass `fields`/`combine`/`renderItem`/`keyFor` for the
+// richer ones (Team's "Name — Location" string, Assets' object entries).
+function ListEditor({ title, list, onChange, fields, combine, renderItem, keyFor }) {
+  const fieldDefs = fields || [{ key: "value", type: "text", placeholder: `Add ${title.toLowerCase()}…` }];
+  const doCombine = combine || ((v) => v.value.trim());
+  const doRender = renderItem || ((item) => item);
+  const doKey = keyFor || ((item) => item);
+  const [vals, setVals] = useState(() => Object.fromEntries(fieldDefs.map((f) => [f.key, ""])));
+  const setVal = (k, v) => setVals((s) => ({ ...s, [k]: v }));
+  const canAdd = fieldDefs.every((f) => f.optional || vals[f.key]);
   return (
     <div className="class-block">
-      <div className="class-sp">Team</div>
+      <div className="class-sp">{title}</div>
       <div className="class-chips">
-        {list.map((c) => (
-          <span className="class-chip" key={c}>
-            {c}
-            <button className="class-x" onClick={() => onChange(list.filter((x) => x !== c))}>
+        {list.map((item) => (
+          <span className="class-chip" key={doKey(item)}>
+            {doRender(item)}
+            <button className="class-x" onClick={() => onChange(list.filter((x) => doKey(x) !== doKey(item)))}>
               ✕
             </button>
           </span>
         ))}
       </div>
       <div className="prop-adder">
-        <input value={name} placeholder="Name…" onChange={(e) => setName(e.target.value)} />
-        <select value={loc} onChange={(e) => setLoc(e.target.value)}>
-          <option value="">Property / Contractor…</option>
-          {locations.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
-          ))}
-        </select>
+        {fieldDefs.map((f) =>
+          f.type === "select" ? (
+            <select key={f.key} value={vals[f.key]} onChange={(e) => setVal(f.key, e.target.value)}>
+              <option value="">{f.placeholder}</option>
+              {(f.options || []).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input key={f.key} value={vals[f.key]} placeholder={f.placeholder} onChange={(e) => setVal(f.key, e.target.value)} />
+          )
+        )}
         <button
           className="btn primary sm"
           onClick={() => {
-            if (!name.trim() || !loc) return;
-            const entry = name.trim() + " — " + loc;
-            if (!list.includes(entry)) onChange([...list, entry]);
-            setName("");
-            setLoc("");
-          }}
-        >
-          Add
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ClassEditor({ species, list, onChange }) {
-  const [v, setV] = useState("");
-  return (
-    <div className="class-block">
-      <div className="class-sp">{species}</div>
-      <div className="class-chips">
-        {list.map((c) => (
-          <span className="class-chip" key={c}>
-            {c}
-            <button className="class-x" onClick={() => onChange(list.filter((x) => x !== c))}>
-              ✕
-            </button>
-          </span>
-        ))}
-      </div>
-      <div className="prop-adder">
-        <input value={v} placeholder={`Add ${species.toLowerCase()} class…`} onChange={(e) => setV(e.target.value)} />
-        <button
-          className="btn primary sm"
-          onClick={() => {
-            if (v.trim() && !list.includes(v.trim())) onChange([...list, v.trim()]);
-            setV("");
+            if (!canAdd) return;
+            const item = doCombine(vals);
+            if (item == null || item === "") return;
+            if (!list.some((x) => doKey(x) === doKey(item))) onChange([...list, item]);
+            setVals(Object.fromEntries(fieldDefs.map((f) => [f.key, ""])));
           }}
         >
           Add
