@@ -2198,6 +2198,20 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     flash("Mob saved");
   };
 
+  const combineDuplicateMob = (keepId, mergeId) => {
+    const keep = data.mobs.find((m) => m.id === keepId);
+    const merge = data.mobs.find((m) => m.id === mergeId);
+    if (!keep || !merge) return;
+    ask(`Combine into one mob? ${num(keep.head).toLocaleString()} + ${num(merge.head).toLocaleString()} = ${(num(keep.head) + num(merge.head)).toLocaleString()}.`, () => {
+      const mobs = data.mobs
+        .map((m) => (m.id === keepId ? { ...m, head: num(m.head) + num(merge.head) } : m))
+        .filter((m) => m.id !== mergeId);
+      setAndSave("mobs", mobs);
+      logAudit("Combine mobs", composeName(keep) + " — " + (keep.property || "") + ` (${num(keep.head).toLocaleString()} + ${num(merge.head).toLocaleString()})`, "mobs", keepId);
+      flash("Combined into one mob");
+    });
+  };
+
   const deleteMob = (id) => {
     const mob = data.mobs.find((m) => m.id === id);
     ask("Delete this mob? Records referencing it will remain.", () => {
@@ -3130,7 +3144,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   <div className="card-title">
                     {prop} <span className="card-title-n">{head.toLocaleString()} hd</span>
                   </div>
-                  {list.map((m) => (
+                  {list.map((m) => {
+                    const dup = list.find((x) => x.id !== m.id && x.paddock === m.paddock && composeName(x) === composeName(m));
+                    return (
                     <div className="mob-row" key={m.id}>
                       <div className="mob-info">
                         <div className="mob-name">{composeName(m)}</div>
@@ -3142,6 +3158,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                       </div>
                       <div className={"mob-head" + (num(m.head) < 0 ? " neg" : "")}>{num(m.head).toLocaleString()}</div>
                       <div className="mob-actions">
+                        {dup && (
+                          <button className="mini-btn allocate" onClick={() => combineDuplicateMob(m.id, dup.id)}>
+                            🔗 Combine
+                          </button>
+                        )}
                         <button className="mini-btn" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
                           Move
                         </button>
@@ -3206,7 +3227,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </section>
               );
             })}
@@ -3596,7 +3618,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                               )}
                             </div>
                           )}
-                          {inPdk.map((m) => (
+                          {inPdk.map((m) => {
+                            const dup = inPdk.find((x) => x.id !== m.id && composeName(x) === composeName(m));
+                            return (
                             <div className="pdk-mob-block" key={m.id}>
                               <div className="pdk-mob">
                                 <span className={num(m.head) < 0 ? "neg" : ""}>
@@ -3604,6 +3628,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                                 </span>
                               </div>
                               <div className="pdk-mob-actions">
+                                {dup && (
+                                  <button className="mini-btn allocate" onClick={() => combineDuplicateMob(m.id, dup.id)}>
+                                    🔗 Combine
+                                  </button>
+                                )}
                                 <button className="mini-btn" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
                                   Move
                                 </button>
@@ -3656,7 +3685,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                                 </button>
                               </div>
                             </div>
-                          ))}
+                            );
+                          })}
                           {!inPdk.length && <div className="pdk-none">Empty</div>}
                         </div>
                         {head !== 0 && (
