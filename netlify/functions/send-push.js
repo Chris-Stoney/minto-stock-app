@@ -1,7 +1,10 @@
-/* Sends a push notification to everyone subscribed to a chat channel,
-   except the sender. "General" notifies everyone; a property channel only
-   notifies people tagged to that property in push_subscriptions.property
-   (set from their Team entry when they turn notifications on).
+/* Generic push sender, shared by Chat and Calendar (and any future caller):
+   given a channel/title/body, notifies everyone subscribed to that channel
+   except the sender. "General" (or no property on the thing being notified
+   about) notifies everyone; a property name only notifies people tagged to
+   that property in push_subscriptions.property (set from their Team entry
+   when they turn notifications on). Caller decides the title/body text —
+   this function only handles who gets notified and the actual sending.
 
    Values duplicated here rather than imported — Netlify's function bundler
    doesn't reliably resolve relative imports that reach outside
@@ -38,9 +41,9 @@ export const handler = async (event) => {
   } catch {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid request" }) };
   }
-  const { channel, author, text } = payload;
-  if (!channel) {
-    return { statusCode: 400, body: JSON.stringify({ error: "Missing channel" }) };
+  const { channel, title, body: bodyText } = payload;
+  if (!channel || !title) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Missing channel or title" }) };
   }
 
   const vapidPublic = process.env.VAPID_PUBLIC_KEY;
@@ -60,9 +63,7 @@ export const handler = async (event) => {
 
   webpush.setVapidDetails("mailto:info@mintopastoral.com.au", vapidPublic, vapidPrivate);
 
-  const title = channel === "General" ? "Minto Pastoral chat" : channel + " chat";
-  const body = (author || "Someone") + ": " + (text || "").slice(0, 120);
-  const notifPayload = JSON.stringify({ title, body, url: "/" });
+  const notifPayload = JSON.stringify({ title, body: (bodyText || "").slice(0, 160), url: "/" });
 
   const results = await Promise.allSettled(
     targets.map((s) =>

@@ -1347,10 +1347,14 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
         if (!supabase) return;
         const token = (await supabase.auth.getSession()).data.session?.access_token;
         if (!token) return;
-        await fetch("/.netlify/functions/send-chat-push", {
+        await fetch("/.netlify/functions/send-push", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ channel: property, author: msg.author, text: msg.text }),
+          body: JSON.stringify({
+            channel: property,
+            title: property === "General" ? "Minto Pastoral chat" : property + " chat",
+            body: (msg.author || "Someone") + ": " + (msg.text || "").slice(0, 120),
+          }),
         });
       } catch {}
     })();
@@ -1716,6 +1720,28 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       const latest = await loadKey(key, []);
       const msg = { id: uid(), author: me || "App", text, ts: Date.now(), system: true };
       await saveKey(key, [...latest, msg].slice(-MAX_CHAT_MSGS));
+    } catch {}
+  };
+
+  // Fire-and-forget: notifies about a newly-created calendar event, scoped
+  // the same way as chat (no property = everyone, a property = just that
+  // property's people). Never called for edits, only new events.
+  const triggerCalendarPush = async (rec) => {
+    try {
+      if (!supabase) return;
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return;
+      const range = rec.endDate && rec.endDate > rec.date ? fmtDate(rec.date) + " – " + fmtDate(rec.endDate) : fmtDate(rec.date);
+      const body = (rec.time ? rec.time + " — " : "") + (rec.title || "Event") + " · " + range;
+      await fetch("/.netlify/functions/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          channel: rec.property || "General",
+          title: "New calendar event" + (rec.property ? " — " + rec.property : ""),
+          body,
+        }),
+      });
     } catch {}
   };
 
@@ -2674,11 +2700,13 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             propertyElements={settings.propertyElements || []}
             onSave={(rec) => {
               const typeKey = activeForm.type || activeForm;
+              const isNew = !activeForm.editId;
               if (activeForm.editId) {
                 reverseRecordEffects(typeKey, activeForm.editId);
                 rec = { ...rec, id: activeForm.editId };
               }
               saveRecord(typeKey, rec);
+              if (isNew && typeKey === "calendar") triggerCalendarPush(rec);
             }}
             onCancel={() => setActiveForm(null)}
           />
