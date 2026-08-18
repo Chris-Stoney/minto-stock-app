@@ -3836,6 +3836,10 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   { key: "location", type: "select", placeholder: "Property / Contractor…", options: [...properties, "Stoney", "Contractor"] },
                 ]}
                 combine={(v) => v.name.trim() + " — " + v.location}
+                parse={(item) => {
+                  const [name, ...rest] = item.split(" — ");
+                  return { name: name.trim(), location: rest.join(" — ").trim() };
+                }}
                 onChange={(list) => {
                   const next = { ...settings, team: list };
                   setSettings(next);
@@ -3854,9 +3858,10 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   { key: "assetType", type: "select", placeholder: "Asset type…", options: settings.assetTypes || DEFAULT_ASSET_TYPES },
                   { key: "property", type: "select", placeholder: "Property (optional)…", options: properties, optional: true },
                 ]}
-                combine={(v) => ({ id: uid(), name: v.name.trim(), assetType: v.assetType, property: v.property || "" })}
+                combine={(v, existing) => ({ id: existing?.id || uid(), name: v.name.trim(), assetType: v.assetType, property: v.property || "" })}
                 renderItem={(a) => `${a.name} — ${a.assetType}${a.property ? " — " + a.property : ""}`}
                 keyFor={(a) => a.id}
+                parse={(a) => ({ name: a.name, assetType: a.assetType, property: a.property || "" })}
                 onChange={(list) => {
                   const next = { ...settings, assets: list };
                   setSettings(next);
@@ -4239,21 +4244,34 @@ function FooImport({ properties, onImport }) {
 // Defaults to a single plain-text field producing a plain string, matching
 // the simple cases; pass `fields`/`combine`/`renderItem`/`keyFor` for the
 // richer ones (Team's "Name — Location" string, Assets' object entries).
-function ListEditor({ title, list, onChange, fields, combine, renderItem, keyFor }) {
+function ListEditor({ title, list, onChange, fields, combine, renderItem, keyFor, parse }) {
   const fieldDefs = fields || [{ key: "value", type: "text", placeholder: `Add ${title.toLowerCase()}…` }];
   const doCombine = combine || ((v) => v.value.trim());
   const doRender = renderItem || ((item) => item);
   const doKey = keyFor || ((item) => item);
-  const [vals, setVals] = useState(() => Object.fromEntries(fieldDefs.map((f) => [f.key, ""])));
+  const doParse = parse || ((item) => ({ value: item }));
+  const blank = () => Object.fromEntries(fieldDefs.map((f) => [f.key, ""]));
+  const [vals, setVals] = useState(blank);
+  const [editingKey, setEditingKey] = useState(null);
   const setVal = (k, v) => setVals((s) => ({ ...s, [k]: v }));
   const canAdd = fieldDefs.every((f) => f.optional || vals[f.key]);
+  const startEdit = (item) => {
+    setEditingKey(doKey(item));
+    setVals({ ...blank(), ...doParse(item) });
+  };
+  const cancelEdit = () => {
+    setEditingKey(null);
+    setVals(blank());
+  };
   return (
     <div className="class-block">
       <div className="class-sp">{title}</div>
       <div className="class-chips">
         {list.map((item) => (
           <span className="class-chip" key={doKey(item)}>
-            {doRender(item)}
+            <button className="class-edit" onClick={() => startEdit(item)}>
+              {doRender(item)}
+            </button>
             <button className="class-x" onClick={() => onChange(list.filter((x) => doKey(x) !== doKey(item)))}>
               ✕
             </button>
@@ -4279,14 +4297,24 @@ function ListEditor({ title, list, onChange, fields, combine, renderItem, keyFor
           className="btn primary sm"
           onClick={() => {
             if (!canAdd) return;
-            const item = doCombine(vals);
+            const editingItem = editingKey != null ? list.find((x) => doKey(x) === editingKey) : null;
+            const item = doCombine(vals, editingItem);
             if (item == null || item === "") return;
-            if (!list.some((x) => doKey(x) === doKey(item))) onChange([...list, item]);
-            setVals(Object.fromEntries(fieldDefs.map((f) => [f.key, ""])));
+            if (editingKey != null) {
+              onChange(list.map((x) => (doKey(x) === editingKey ? item : x)));
+            } else if (!list.some((x) => doKey(x) === doKey(item))) {
+              onChange([...list, item]);
+            }
+            cancelEdit();
           }}
         >
-          Add
+          {editingKey != null ? "Save" : "Add"}
         </button>
+        {editingKey != null && (
+          <button className="btn ghost sm" onClick={cancelEdit}>
+            Cancel
+          </button>
+        )}
       </div>
     </div>
   );
@@ -4643,6 +4671,8 @@ function Style() {
       display: inline-flex; align-items: center; gap: 6px;
     }
     .class-x { background: none; border: none; color: #B03A2E; font-size: 11px; padding: 2px 4px; }
+    .class-edit { background: none; border: none; color: #23281F; font: inherit; font-weight: 600; padding: 0; cursor: pointer; }
+    .class-edit:hover { text-decoration: underline; }
     .empty.big { text-align: center; padding: 40px 20px; background: #fff; border-radius: 12px; border: 1px dashed #C9C6B9; }
     .note { font-size: 13.5px; color: #6a6f60; margin-bottom: 10px; }
     .prop-adder { display: flex; gap: 8px; margin-top: 10px; }
