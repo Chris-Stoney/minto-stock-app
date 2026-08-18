@@ -473,6 +473,8 @@ const RECORD_TYPES = {
     tag: TAG.calendar,
     fields: [
       { key: "date", label: "Date", type: "date" },
+      { key: "endDate", label: "Ends on (optional — for events running over a few days)", type: "date", optional: true },
+      { key: "time", label: "Time (optional — for a specific appointment)", type: "time", optional: true },
       { key: "title", label: "What's happening", type: "text" },
       { key: "property", label: "Property", type: "property", optional: true },
       { key: "notes", label: "Notes", type: "textarea", optional: true },
@@ -739,7 +741,7 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
     <div className="f-row">
       {label}
       <input
-        type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
+        type={f.type === "number" ? "number" : f.type === "date" ? "date" : f.type === "time" ? "time" : "text"}
         inputMode={f.type === "number" ? "decimal" : undefined}
         {...common}
       />
@@ -1086,7 +1088,22 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
       (map[date] = map[date] || []).push(item);
     };
     byProp(data.musters).forEach((r) => add(r.date, { type: "musters", label: r.activity || "Muster", sub: r.property, color: TAG.musters, rec: r, editable: true }));
-    byProp(data.calendar).forEach((r) => add(r.date, { type: "calendar", label: r.title || "Event", sub: r.property, color: TAG.calendar, rec: r, editable: true }));
+    byProp(data.calendar).forEach((r) => {
+      const label = (r.time ? r.time + " — " : "") + (r.title || "Event");
+      const spansDays = r.endDate && r.endDate > r.date;
+      const sub = [r.property, spansDays ? fmtDate(r.date) + " – " + fmtDate(r.endDate) : ""].filter(Boolean).join(" · ");
+      if (!spansDays) {
+        add(r.date, { type: "calendar", label, sub, color: TAG.calendar, rec: r, editable: true });
+        return;
+      }
+      // Multi-day event: show it on every day it spans, not just the start day.
+      let d = new Date(r.date + "T00:00:00");
+      const endD = new Date(r.endDate + "T00:00:00");
+      while (d <= endD) {
+        add(localDateStr(d), { type: "calendar", label, sub, color: TAG.calendar, rec: r, editable: true });
+        d.setDate(d.getDate() + 1);
+      }
+    });
     byProp(data.orders).forEach((r) => add(r.date, { type: "orders", label: "PO: " + (r.item || "purchase"), sub: r.status, color: TAG.orders, rec: r, editable: true }));
     byProp(data.health).forEach((r) => {
       const today = localDateStr(new Date());
@@ -2450,7 +2467,10 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           sub: r.property || "",
         };
       case "calendar":
-        return { title: r.title || "Calendar event", sub: [r.property, r.notes].filter(Boolean).join(" · ") };
+        return {
+          title: (r.time ? r.time + " — " : "") + (r.title || "Calendar event"),
+          sub: [r.property, r.endDate && r.endDate > r.date ? "until " + fmtDate(r.endDate) : "", r.notes].filter(Boolean).join(" · "),
+        };
       case "spendRequest": {
         const spendAsset = r.assetId ? (settings.assets || []).find((a) => a.id === r.assetId) : null;
         return {
