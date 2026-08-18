@@ -60,6 +60,7 @@ const DEFAULT_TEAM = [
 ];
 const DEFAULT_CONTRACTORS = [];
 const SPEND_TYPES = ["CAP EX", "Maintenance"];
+const ASSET_INFRA_BRANCHED_TYPES = ["spendRequest", "maint"];
 const DEFAULT_ASSET_TYPES = ["Vehicles", "Machinery / Equipment"];
 const DEFAULT_PROPERTY_ELEMENTS = ["Water", "Yards", "Fence", "Buildings"];
 
@@ -566,8 +567,14 @@ const RECORD_TYPES = {
     tag: TAG.maint,
     fields: [
       { key: "date", label: "Date", type: "date" },
-      { key: "property", label: "Property", type: "property" },
-      { key: "asset", label: "Asset / machine", type: "text" },
+      { key: "category", label: "Category", type: "select", options: ["Assets", "Infrastructure"] },
+      { key: "assetType", label: "Asset type", type: "select", optionsFrom: "assetTypes", showIf: (v) => v.category === "Assets" },
+      { key: "assetId", label: "Asset", type: "asset", showIf: (v) => v.category === "Assets" },
+      { key: "meterReading", label: "Meter reading (hours or km)", type: "number", optional: true, showIf: (v) => v.category === "Assets" },
+      { key: "faultNote", label: "Fault note", type: "textarea", optional: true, showIf: (v) => v.category === "Assets" },
+      { key: "property", label: "Property", type: "property", showIf: (v) => v.category === "Infrastructure" },
+      { key: "propertyElement", label: "Property element", type: "select", optionsFrom: "propertyElements", showIf: (v) => v.category === "Infrastructure" },
+      { key: "locationText", label: "Describe the location on the property", type: "text", showIf: (v) => v.category === "Infrastructure" },
       { key: "work", label: "Work done", type: "textarea" },
       { key: "doneBy", label: "Done by", type: "text", optional: true },
       { key: "cost", label: "Cost ($)", type: "number", optional: true },
@@ -752,9 +759,10 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
   const set = (k, v) =>
     setVals((s) => {
       const next = { ...s, [k]: v };
-      // Spend requests: switching branch clears the other branch's fields
-      // instead of leaving stale hidden values behind.
-      if (typeKey === "spendRequest" && k === "category") {
+      // Spend requests and Maintenance jobs share the same Assets/Infrastructure
+      // branching: switching branch clears the other branch's fields instead of
+      // leaving stale hidden values behind.
+      if (ASSET_INFRA_BRANCHED_TYPES.includes(typeKey) && k === "category") {
         const assetFields = ["assetType", "assetId", "meterReading", "faultNote"];
         const infraFields = ["property", "propertyElement", "locationText"];
         (v === "Assets" ? infraFields : assetFields).forEach((f) => delete next[f]);
@@ -762,7 +770,7 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
       // Changing asset type invalidates whichever specific asset was picked
       // under the old type — the asset dropdown re-filters, but the stale id
       // would otherwise still pass validation and submit mismatched.
-      if (typeKey === "spendRequest" && k === "assetType") {
+      if (ASSET_INFRA_BRANCHED_TYPES.includes(typeKey) && k === "assetType") {
         delete next.assetId;
       }
       return next;
@@ -2456,8 +2464,13 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             .join(" · "),
         };
       }
-      case "maint":
-        return { title: `${r.asset} — ${r.property}`, sub: r.work };
+      case "maint": {
+        // r.asset is the old free-text field (records from before Assets/
+        // Infrastructure branching existed) — keep showing those correctly.
+        const maintAsset = r.assetId ? (settings.assets || []).find((a) => a.id === r.assetId) : null;
+        const what = r.asset || maintAsset?.name || r.propertyElement || "Maintenance";
+        return { title: `${what} — ${r.property || ""}`, sub: r.work };
+      }
       case "pasture":
         return {
           title: `${r.paddock} — ${r.condition}`,
