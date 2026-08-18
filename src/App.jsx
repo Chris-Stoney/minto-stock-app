@@ -26,6 +26,7 @@ const KEYS = {
   shearing: "mp2:shearing",
   woolsale: "mp2:woolsale",
   menu: "mp2:menu",
+  calendar: "mp2:calendar",
   audit: "mp2:audit",
   settings: "mp2:settings-v5",
 };
@@ -282,6 +283,7 @@ const TAG = {
   shearing: "#C9A227",
   woolsale: "#8A7B5C",
   menu: "#B0743A",
+  calendar: "#C25E1F",
 };
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -456,6 +458,17 @@ const RECORD_TYPES = {
       { key: "pdks", label: "Paddocks", type: "text", optional: true },
       { key: "crew", label: "Who is helping (contractors / juniors / staff)", type: "team", optional: true },
       { key: "startAt", label: "Start (e.g. 6:30am at the yards)", type: "text", optional: true },
+      { key: "notes", label: "Notes", type: "textarea", optional: true },
+    ],
+  },
+  calendar: {
+    label: "Calendar events",
+    single: "Calendar event",
+    tag: TAG.calendar,
+    fields: [
+      { key: "date", label: "Date", type: "date" },
+      { key: "title", label: "What's happening", type: "text" },
+      { key: "property", label: "Property", type: "property", optional: true },
       { key: "notes", label: "Notes", type: "textarea", optional: true },
     ],
   },
@@ -975,6 +988,128 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
 
 const MAX_CHAT_MSGS = 50;
 
+const localDateStr = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+
+function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEvent }) {
+  const [month, setMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+  const [selectedDay, setSelectedDay] = useState(localDateStr(new Date()));
+
+  const byProp = (arr) => (propFilter === "All" ? arr : (arr || []).filter((r) => r.property === propFilter));
+
+  const itemsByDate = useMemo(() => {
+    const map = {};
+    const add = (date, item) => {
+      if (!date) return;
+      (map[date] = map[date] || []).push(item);
+    };
+    byProp(data.musters).forEach((r) => add(r.date, { type: "musters", label: r.activity || "Muster", sub: r.property, color: TAG.musters, rec: r, editable: true }));
+    byProp(data.calendar).forEach((r) => add(r.date, { type: "calendar", label: r.title || "Event", sub: r.property, color: TAG.calendar, rec: r, editable: true }));
+    byProp(data.orders).forEach((r) => add(r.date, { type: "orders", label: "PO: " + (r.item || "purchase"), sub: r.status, color: TAG.orders, rec: r, editable: true }));
+    byProp(data.health).forEach((r) => {
+      const today = localDateStr(new Date());
+      if (r.whpClear && r.whpClear >= today) add(r.whpClear, { type: "health", label: "WHP clear — " + (r.mobName || ""), color: TAG.health, rec: r, editable: false });
+      if (r.esiClear && r.esiClear >= today && r.esiClear !== r.whpClear) add(r.esiClear, { type: "health", label: "ESI clear — " + (r.mobName || ""), color: TAG.health, rec: r, editable: false });
+    });
+    return map;
+  }, [data, propFilter]);
+
+  const gridDays = useMemo(() => {
+    const startDow = month.getDay();
+    const gridStart = new Date(month.getFullYear(), month.getMonth(), 1 - startDow);
+    return Array.from({ length: 42 }, (_, i) => new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i));
+  }, [month]);
+
+  const todayKey = localDateStr(new Date());
+  const dayItems = itemsByDate[selectedDay] || [];
+
+  return (
+    <>
+      <div className="section-head">
+        <h2>Calendar</h2>
+      </div>
+      <section className="card">
+        <div className="cal-nav">
+          <button className="mini-btn" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>
+            ‹
+          </button>
+          <div className="cal-month">{MONTH_NAMES[month.getMonth()]} {month.getFullYear()}</div>
+          <button className="mini-btn" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>
+            ›
+          </button>
+        </div>
+        <div className="cal-grid cal-weekdays">
+          {WEEKDAY_LETTERS.map((w, i) => (
+            <div className="cal-wd" key={i}>{w}</div>
+          ))}
+        </div>
+        <div className="cal-grid">
+          {gridDays.map((d) => {
+            const key = localDateStr(d);
+            const inMonth = d.getMonth() === month.getMonth();
+            const items = itemsByDate[key] || [];
+            return (
+              <button
+                key={key}
+                className={"cal-day" + (inMonth ? "" : " cal-day-out") + (key === todayKey ? " cal-day-today" : "") + (key === selectedDay ? " cal-day-selected" : "")}
+                onClick={() => setSelectedDay(key)}
+              >
+                <span className="cal-day-n">{d.getDate()}</span>
+                <span className="cal-day-dots">
+                  {items.slice(0, 4).map((it, i) => (
+                    <span key={i} className="cal-dot" style={{ background: it.color }} />
+                  ))}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="card-title">
+          {new Date(selectedDay + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
+        </div>
+        {dayItems.length === 0 && <div className="empty">Nothing planned for this day.</div>}
+        {dayItems.map((it, i) => (
+          <div className="rain-row" key={i}>
+            <span>
+              <span className="cal-dot" style={{ background: it.color, marginRight: 6 }} />
+              {it.label}
+              {it.sub ? " · " + it.sub : ""}
+            </span>
+            {it.editable && (
+              <span className="btn-row" style={{ marginTop: 0 }}>
+                <button className="mini-btn" onClick={() => onEditItem(it.type, it.rec.id)}>
+                  Edit
+                </button>
+                {it.type === "calendar" && (
+                  <button className="mini-btn danger" onClick={() => onDeleteEvent(it.rec.id)}>
+                    ✕
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
+        ))}
+        <button className="btn primary sm" style={{ marginTop: 10 }} onClick={() => onAddEvent(selectedDay)}>
+          + Add event
+        </button>
+      </section>
+    </>
+  );
+}
+
 function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, ask }) {
   const [msgs, setMsgs] = useState([]);
   const [photos, setPhotos] = useState({});
@@ -1312,6 +1447,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     orders: [],
     musters: [],
     menu: [],
+    calendar: [],
     marking: [],
     weaning: [],
     pregtest: [],
@@ -1374,16 +1510,17 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         loadKey(KEYS.pdkuse, []),
         loadKey(KEYS.shearing, []),
         loadKey(KEYS.woolsale, []),
+        loadKey(KEYS.calendar, []),
         loadKey(KEYS.settings, null),
       ]);
       // Paint fast: if storage is slow (rate limits etc.), fall back to the built-in baseline after 4s
       const timeout = new Promise((res) => setTimeout(() => res("__SLOW__"), 4000));
       const raced = await Promise.race([loadAll, timeout]);
-      let mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, st;
+      let mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, st;
       if (raced === "__SLOW__") {
         setStorageMode("memory");
-        [mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, st] =
-          [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], null];
+        [mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, st] =
+          [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], null];
         // keep listening: if storage answers later, quietly upgrade
         loadAll.then((vals) => {
           try {
@@ -1392,7 +1529,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           } catch {}
         });
       } else {
-        [mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, st] = raced;
+        [mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, st] = raced;
       }
       const fromBaseline = (cur, k) => {
         if (cur && cur.length) return cur;
@@ -1419,6 +1556,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         pdkuse: fromBaseline(pdkuse, "pdkuse"),
         shearing: fromBaseline(shearing, "shearing"),
         woolsale: fromBaseline(woolsale, "woolsale"),
+        calendar: fromBaseline(calendar, "calendar"),
         audit: auditData,
       });
       setSettings({
@@ -1458,7 +1596,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const keys = [
       "mobs", "moves", "health", "rain", "trucking", "maint", "pasture", "adjust",
       "orders", "musters", "menu", "marking", "weaning", "pregtest", "pdkuse",
-      "shearing", "woolsale", "audit",
+      "shearing", "woolsale", "calendar", "audit",
     ];
     const refresh = async () => {
       if (STORAGE.mode === "memory") return;
@@ -2103,7 +2241,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const activity = useMemo(() => {
     const cutoff = Date.now() - 3 * 86400000; // last 3 days, then it expires
     const all = [];
-    ["moves", "health", "rain", "trucking", "maint", "pasture", "adjust", "orders", "musters", "menu", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
+    ["moves", "health", "rain", "trucking", "maint", "pasture", "adjust", "orders", "musters", "menu", "calendar", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
       byProp(data[k]).forEach((r) => {
         if ((r.createdAt || 0) >= cutoff) all.push({ ...r, _type: k });
       })
@@ -2191,6 +2329,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           title: `${r.mobName || "Mob"} — ${r.reason} (${r.delta > 0 ? "+" : ""}${r.delta})`,
           sub: r.property || "",
         };
+      case "calendar":
+        return { title: r.title || "Calendar event", sub: [r.property, r.notes].filter(Boolean).join(" · ") };
       case "maint":
         return { title: `${r.asset} — ${r.property}`, sub: r.work };
       case "pasture":
@@ -3335,6 +3475,17 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           </>
         )}
 
+        {/* ============ CALENDAR ============ */}
+        {tab === "calendar" && (
+          <CalendarScreen
+            data={data}
+            propFilter={propFilter}
+            onAddEvent={(date) => setActiveForm({ type: "calendar", defaults: { date } })}
+            onEditItem={editRecordFromLog}
+            onDeleteEvent={(id) => deleteRecordFromLog("calendar", id)}
+          />
+        )}
+
         {/* ============ CHAT ============ */}
         {tab === "chat" && (
           <>
@@ -3640,6 +3791,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           ["paddocks", "Stock"],
           ["rain", "Rain"],
           ["wool", "Wool"],
+          ["calendar", "Cal"],
           ["chat", "Chat"],
           ["records", "Recs"],
           ["setup", "Setup"],
@@ -3896,6 +4048,7 @@ function QuickAdd({ onPick }) {
     ["adjust", "Deaths / adjustment"],
     ["maint", "Maintenance"],
     ["musters", "Muster / job"],
+    ["calendar", "Calendar event"],
     ["menu", "Menu"],
     ["orders", "Purchase order"],
     ["pasture", "Pasture"],
@@ -4154,15 +4307,15 @@ function Style() {
     .bottomnav {
       position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
       width: 100%; max-width: 560px; z-index: 30;
-      display: grid; grid-template-columns: repeat(7, 1fr);
+      display: grid; grid-template-columns: repeat(8, 1fr);
       background: #FFFFFF; border-top: 1px solid #D9D6CB;
       padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
     }
     .nav-btn {
       position: relative;
-      background: none; border: none; padding: 10px 4px;
-      font-family: 'Barlow Semi Condensed'; font-weight: 600; font-size: 13px;
-      letter-spacing: 0.4px; text-transform: uppercase; color: #8B887A;
+      background: none; border: none; padding: 10px 2px;
+      font-family: 'Barlow Semi Condensed'; font-weight: 600; font-size: 12px;
+      letter-spacing: 0.3px; text-transform: uppercase; color: #8B887A;
       border-radius: 9px;
     }
     .nav-btn.active { color: #2F4A33; background: #EAF0EA; }
@@ -4171,6 +4324,24 @@ function Style() {
       width: 8px; height: 8px; border-radius: 50%;
       background: #C0392B; border: 1.5px solid #FFFFFF;
     }
+
+    .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .cal-month { font-family: 'Barlow Semi Condensed'; font-weight: 700; font-size: 18px; color: #2F4A33; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+    .cal-weekdays { margin-bottom: 4px; }
+    .cal-wd { text-align: center; font-size: 11px; font-weight: 700; color: #8B887A; padding: 4px 0; }
+    .cal-day {
+      position: relative; aspect-ratio: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: flex-start; gap: 3px; padding: 4px 2px 0;
+      background: #FBFAF6; border: 1px solid #EFEDE3; border-radius: 8px;
+      font-family: inherit; font-size: 13px; color: #23281F;
+    }
+    .cal-day-out { color: #C4C1B4; background: #F4F3EE; }
+    .cal-day-today { border-color: #2F4A33; border-width: 2px; }
+    .cal-day-selected { background: #EAF0EA; border-color: #6BA542; }
+    .cal-day-n { font-weight: 600; }
+    .cal-day-dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
+    .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 
     .empty { color: #8B887A; font-size: 14.5px; padding: 6px 0; }
     .pdk-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid #F0EEE6; }
