@@ -213,6 +213,11 @@ const composeName = (m) =>
   m.name ||
   "Unnamed mob";
 
+// For "is this the same description" comparisons (e.g. combining duplicate
+// mobs) rather than display — case/whitespace differences that look
+// identical on screen would otherwise silently fail to match.
+const sameDescription = (a, b) => composeName(a).trim().toLowerCase() === composeName(b).trim().toLowerCase();
+
 // Classes and DSE ratings taken from the 1 July 2026 paddock sheets
 const DEFAULT_CLASSES = {
   Sheep: [
@@ -477,6 +482,7 @@ const RECORD_TYPES = {
       { key: "endDate", label: "Ends on (optional — for events running over a few days)", type: "date", optional: true },
       { key: "time", label: "Time (optional — for a specific appointment)", type: "time", optional: true },
       { key: "title", label: "What's happening", type: "text" },
+      { key: "assignedTo", label: "Assigned to", type: "team", optional: true },
       { key: "property", label: "Property", type: "property", optional: true },
       { key: "notes", label: "Notes", type: "textarea", optional: true },
     ],
@@ -1071,6 +1077,16 @@ const localDateStr = (d) => {
 };
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+// Deterministic colour per person, so the same name always gets the same
+// colour without needing to maintain a name->colour list anywhere.
+const PERSON_COLORS = ["#4E5D9E", "#5C8A4E", "#B03A2E", "#A85C7A", "#C9A227", "#2E7F8F", "#8A6FB0", "#DA7B26", "#6BA542", "#94651E"];
+const colorForPerson = (name) => {
+  if (!name) return null;
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  return PERSON_COLORS[Math.abs(hash) % PERSON_COLORS.length];
+};
 const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 
 function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEvent }) {
@@ -1092,16 +1108,18 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
     byProp(data.calendar).forEach((r) => {
       const label = (r.time ? r.time + " — " : "") + (r.title || "Event");
       const spansDays = r.endDate && r.endDate > r.date;
-      const sub = [r.property, spansDays ? fmtDate(r.date) + " – " + fmtDate(r.endDate) : ""].filter(Boolean).join(" · ");
+      const sub = [r.property, r.assignedTo, spansDays ? fmtDate(r.date) + " – " + fmtDate(r.endDate) : ""].filter(Boolean).join(" · ");
+      const firstAssignee = (r.assignedTo || "").split(",")[0]?.trim();
+      const color = colorForPerson(firstAssignee) || TAG.calendar;
       if (!spansDays) {
-        add(r.date, { type: "calendar", label, sub, color: TAG.calendar, rec: r, editable: true });
+        add(r.date, { type: "calendar", label, sub, color, rec: r, editable: true });
         return;
       }
       // Multi-day event: show it on every day it spans, not just the start day.
       let d = new Date(r.date + "T00:00:00");
       const endD = new Date(r.endDate + "T00:00:00");
       while (d <= endD) {
-        add(localDateStr(d), { type: "calendar", label, sub, color: TAG.calendar, rec: r, editable: true });
+        add(localDateStr(d), { type: "calendar", label, sub, color, rec: r, editable: true });
         d.setDate(d.getDate() + 1);
       }
     });
@@ -2510,7 +2528,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       case "calendar":
         return {
           title: (r.time ? r.time + " — " : "") + (r.title || "Calendar event"),
-          sub: [r.property, r.endDate && r.endDate > r.date ? "until " + fmtDate(r.endDate) : "", r.notes].filter(Boolean).join(" · "),
+          sub: [r.property, r.assignedTo, r.endDate && r.endDate > r.date ? "until " + fmtDate(r.endDate) : "", r.notes].filter(Boolean).join(" · "),
         };
       case "spendRequest": {
         const spendAsset = r.assetId ? (settings.assets || []).find((a) => a.id === r.assetId) : null;
@@ -3145,7 +3163,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                     {prop} <span className="card-title-n">{head.toLocaleString()} hd</span>
                   </div>
                   {list.map((m) => {
-                    const dup = list.find((x) => x.id !== m.id && x.paddock === m.paddock && composeName(x) === composeName(m));
+                    const dup = list.find((x) => x.id !== m.id && x.paddock === m.paddock && sameDescription(x, m));
                     return (
                     <div className="mob-row" key={m.id}>
                       <div className="mob-info">
@@ -3619,7 +3637,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                             </div>
                           )}
                           {inPdk.map((m) => {
-                            const dup = inPdk.find((x) => x.id !== m.id && composeName(x) === composeName(m));
+                            const dup = inPdk.find((x) => x.id !== m.id && sameDescription(x, m));
                             return (
                             <div className="pdk-mob-block" key={m.id}>
                               <div className="pdk-mob">
