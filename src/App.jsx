@@ -2684,6 +2684,33 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     URL.revokeObjectURL(url);
   };
 
+  const exportSalesCsv = () => {
+    const rows = byProp(data.trucking.filter((t) => t.ttype === "Sale to market")).sort(
+      (a, b) => new Date(b.date) - new Date(a.date)
+    );
+    const esc = (v) => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const header = ["Date", "Property", "Mob", "Head", "Destination", "Freight cost"];
+    const lines = [header.join(",")];
+    rows.forEach((r) => {
+      lines.push(
+        [fmtDate(r.date), r.property, r.mobName, num(r.head), r.destination, r.freightCost ? num(r.freightCost) : ""]
+          .map(esc)
+          .join(",")
+      );
+    });
+    const csv = lines.join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "sales-to-market" + (propFilter !== "All" ? "-" + propFilter : "") + ".csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const [exportText, setExportText] = useState("");
   const exportData = () => {
     setExportText(JSON.stringify({ exported: new Date().toISOString(), build: BUILD, ...data }));
@@ -3268,6 +3295,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               <span className="rec-cat-n">{byProp(data.shearing).length + data.woolsale.length}</span>
               <span className="rec-cat-arrow">›</span>
             </button>
+            <button className="rec-cat" onClick={() => setRecordView("sales")}>
+              <span className="act-dot lg" style={{ background: TAG.trucking }} />
+              <span className="rec-cat-label">Sales to market</span>
+              <span className="rec-cat-n">{byProp(data.trucking.filter((t) => t.ttype === "Sale to market")).length}</span>
+              <span className="rec-cat-arrow">›</span>
+            </button>
             {Object.entries(RECORD_TYPES).map(([k, cfg]) => (
               <button className="rec-cat" key={k} onClick={() => setRecordView(k)}>
                 <span className="act-dot lg" style={{ background: cfg.tag }} />
@@ -3358,7 +3391,52 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           </>
         )}
 
-        {tab === "records" && recordView && recordView !== "wool" && (
+        {tab === "records" && recordView === "sales" && (
+          <>
+            <div className="section-head">
+              <button className="back" onClick={() => setRecordView(null)}>
+                ‹ Records
+              </button>
+              <button className="btn primary sm" onClick={exportSalesCsv}>
+                ⬇ Export CSV
+              </button>
+            </div>
+            <h2 className="rec-h">Sales to market</h2>
+            {(() => {
+              const sales = byProp(data.trucking.filter((t) => t.ttype === "Sale to market")).sort(
+                (a, b) => new Date(b.date) - new Date(a.date)
+              );
+              const totalHead = sales.reduce((a, t) => a + num(t.head), 0);
+              return (
+                <>
+                  <section className="card">
+                    <div className="rain-row">
+                      <span>Total head sold</span>
+                      <span className="rain-mm">{totalHead.toLocaleString()}</span>
+                    </div>
+                  </section>
+                  <section className="card">
+                    {sales.length === 0 && <div className="empty">No sales to market recorded yet.</div>}
+                    {sales.map((r) => (
+                      <div className="rain-row" key={r.id}>
+                        <span>
+                          {fmtDate(r.date)} — {r.property}
+                          <span className="whp-date">
+                            {" "}
+                            · {r.mobName || ""} · {r.destination || "no destination recorded"}
+                          </span>
+                        </span>
+                        <span className="rain-mm">{num(r.head).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </section>
+                </>
+              );
+            })()}
+          </>
+        )}
+
+        {tab === "records" && recordView && recordView !== "wool" && recordView !== "sales" && (
           <>
             <div className="section-head">
               <button className="back" onClick={() => setRecordView(null)}>
