@@ -348,6 +348,31 @@ async function saveKey(key, val) {
   }
 }
 
+// Like loadKey, but also hands back the row's updated_at so a caller can do
+// an optimistic-concurrency write against it (see casSaveKey).
+async function loadKeyMeta(key, fallback) {
+  if (STORAGE.mode === "memory") return { value: fallback, updatedAt: null };
+  try {
+    const r = await window.storage.get(key, STORAGE.shared);
+    return r ? { value: JSON.parse(r.value), updatedAt: r.updatedAt ?? null } : { value: fallback, updatedAt: null };
+  } catch {
+    return { value: fallback, updatedAt: null };
+  }
+}
+
+// true = written. false = someone else wrote first (conflict — caller should
+// re-read and retry). null = a real error occurred (caller should give up and
+// fall back rather than retry forever).
+async function casSaveKey(key, val, expectedUpdatedAt) {
+  if (STORAGE.mode === "memory") return null;
+  try {
+    return await window.storage.casSet(key, JSON.stringify(val), expectedUpdatedAt, STORAGE.shared);
+  } catch (e) {
+    console.error("cas save failed", e);
+    return null;
+  }
+}
+
 /* ------------------ Record type configs ------------------ */
 
 const RECORD_TYPES = {
@@ -1770,13 +1795,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   };
 
   // Managers-only audit trail: stamps every action with the signed-in login.
+  // Routed through setAndSave (not a direct save) so two people logging
+  // actions seconds apart both land instead of one overwriting the other.
   const logAudit = (action, summary, typeKey, recordId) => {
     const entry = { id: uid(), ts: Date.now(), user: userEmail || "unknown", action, summary: summary || "", typeKey, recordId };
-    setData((d) => {
-      const next = [entry, ...(d.audit || [])].slice(0, 2000);
-      if (!PREVIEW) saveKey(KEYS.audit, next);
-      return { ...d, audit: next };
-    });
+    setAndSave("audit", [entry, ...(data.audit || [])].slice(0, 2000));
   };
 
   const properties = settings.properties;
@@ -1848,37 +1871,52 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const mobById = (id) => data.mobs.find((m) => m.id === id);
 
   // Two people saving around the same time can otherwise silently erase each
-  // other's records: this used to just write the local array straight over
-  // whatever was in Supabase. Now it re-fetches the latest shared copy first
-  // and merges this save's actual changes (by record id) into that, instead
-  // of overwriting the whole array with a possibly-stale local snapshot.
+  // other's records: a plain "re-fetch, merge, write" still has a gap between
+  // the fetch and the write where someone else's save can land — and a second
+  // save whose fetch predates that write would merge onto a stale copy and
+  // overwrite it. So the write is conditional on nobody else having written
+  // since this save's fetch (see casSaveKey); if that check fails, it re-reads
+  // the newer copy and retries the merge, instead of overwriting blind.
   const setAndSave = (key, arr) => {
     const before = data[key] || [];
     setData((d) => ({ ...d, [key]: arr }));
     if (PREVIEW) return; // preview: in-session only
     (async () => {
-      let toWrite = arr;
-      if (STORAGE.mode === "shared") {
-        try {
-          const fresh = await loadKey(KEYS[key], null);
-          if (fresh) {
-            const beforeIds = new Set(before.map((r) => r.id));
-            const afterIds = new Set(arr.map((r) => r.id));
-            const removedIds = [...beforeIds].filter((id) => !afterIds.has(id));
-            const changed = arr.filter((r) => !before.find((b) => b.id === r.id && b === r));
-            let merged = fresh.filter((r) => !removedIds.includes(r.id));
-            changed.forEach((r) => {
-              const idx = merged.findIndex((m) => m.id === r.id);
-              if (idx >= 0) merged[idx] = r;
-              else merged = [r, ...merged];
-            });
-            toWrite = merged;
-            setData((d) => (d[key] === arr ? { ...d, [key]: merged } : d));
-          }
-        } catch {}
+      if (STORAGE.mode !== "shared") {
+        const ok = await saveKey(KEYS[key], arr);
+        if (!ok) setStorageMode("memory");
+        return;
       }
-      const ok = await saveKey(KEYS[key], toWrite);
-      if (!ok) setStorageMode("memory");
+      const beforeIds = new Set(before.map((r) => r.id));
+      const afterIds = new Set(arr.map((r) => r.id));
+      const removedIds = [...beforeIds].filter((id) => !afterIds.has(id));
+      const changed = arr.filter((r) => !before.find((b) => b.id === r.id && b === r));
+
+      let merged = arr;
+      let landed = false;
+      for (let attempt = 0; attempt < 6 && !landed; attempt++) {
+        const { value: fresh, updatedAt } = await loadKeyMeta(KEYS[key], null);
+        const base = fresh || [];
+        merged = base.filter((r) => !removedIds.includes(r.id));
+        changed.forEach((r) => {
+          const idx = merged.findIndex((m) => m.id === r.id);
+          if (idx >= 0) merged[idx] = r;
+          else merged = [r, ...merged];
+        });
+        const result = await casSaveKey(KEYS[key], merged, updatedAt);
+        if (result === true) landed = true;
+        else if (result === null) break; // real error — stop retrying, fall back below
+        // result === false: someone else wrote in between — loop and retry
+      }
+      if (landed) {
+        setData((d) => (d[key] === arr ? { ...d, [key]: merged } : d));
+      } else {
+        // Retries exhausted under contention, or a real error broke the loop —
+        // still write the best merge we have rather than silently dropping it.
+        const ok = await saveKey(KEYS[key], merged);
+        if (!ok) setStorageMode("memory");
+        else setData((d) => (d[key] === arr ? { ...d, [key]: merged } : d));
+      }
     })();
   };
 

@@ -33,6 +33,13 @@ export const localStorageBackend = {
       throw e;
     }
   },
+
+  // One device, nothing else can be writing at the same time — no conflict
+  // is possible, so this always just writes and reports success.
+  async casSet(key, value /*, expectedUpdatedAt, shared */) {
+    await this.set(key, value);
+    return true;
+  },
 };
 
 // When Supabase is wired up, we'll export a `supabaseBackend` with the same
