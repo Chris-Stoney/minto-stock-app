@@ -4244,6 +4244,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 </div>
               )}
             </section>
+            <LostEntries audit={data.audit || []} data={data} />
             <ActivityLog audit={data.audit || []} data={data} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} />
           </>
         )}
@@ -4305,6 +4306,55 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         ))}
       </nav>
     </div>
+  );
+}
+
+// Finds Activity log entries whose record no longer exists anywhere — the
+// trace left behind by the near-simultaneous-save bug (fixed, but it can't
+// un-lose anything it already overwrote). Takes the latest audit entry per
+// record; if that latest entry wasn't itself a delete, and the record isn't
+// in its list, it was probably saved and then silently overwritten.
+function LostEntries({ audit, data }) {
+  const latestByRecord = new Map();
+  (audit || []).forEach((a) => {
+    if (!a.typeKey || !a.recordId || !RECORD_TYPES[a.typeKey]) return;
+    const k = a.typeKey + ":" + a.recordId;
+    const cur = latestByRecord.get(k);
+    if (!cur || a.ts > cur.ts) latestByRecord.set(k, a);
+  });
+  const missing = [...latestByRecord.values()]
+    .filter((a) => a.action !== "Delete" && a.action !== "Undo / delete")
+    .filter((a) => !(data?.[a.typeKey] || []).some((r) => r.id === a.recordId))
+    .sort((a, b) => b.ts - a.ts);
+  const fmt = (ts) => {
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  return (
+    <section className="card">
+      <div className="card-title">
+        Possibly lost entries <span className="card-title-n">{missing.length}</span>
+      </div>
+      <p className="note">
+        Saved (they're in the Activity log below) but their record isn't in its list anymore — most likely lost to
+        the near-simultaneous-save bug that's now fixed. Re-enter these if they're still needed; entries you deleted
+        on purpose won't show up here.
+      </p>
+      {missing.length === 0 && <div className="empty">None found — nothing looks lost.</div>}
+      {missing.map((a) => (
+        <div className="rain-row" key={a.typeKey + ":" + a.recordId}>
+          <span>
+            <b>{RECORD_TYPES[a.typeKey]?.label || a.typeKey}</b>
+            {a.summary ? " — " + a.summary : ""}
+            <span className="whp-date"> · {a.user}</span>
+          </span>
+          <span className="rain-mm" style={{ color: "#8B887A", fontWeight: 600, whiteSpace: "nowrap" }}>
+            {fmt(a.ts)}
+          </span>
+        </div>
+      ))}
+    </section>
   );
 }
 
