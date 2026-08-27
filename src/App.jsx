@@ -1204,6 +1204,11 @@ function guessDefaults(typeKey, a, properties) {
   if (cfg.fields.some((f) => f.key === "notes")) {
     out.notes = "Re-entered from the Activity log (" + a.user + ", " + fmtDate(date) + ")" + (summary ? ": " + summary : "");
   }
+  // Rides along invisibly (not a real form field) so LostEntries can tell,
+  // once this save lands, that this particular lost entry has been handled —
+  // otherwise it'd keep showing up forever, since the re-entered record gets
+  // a brand new id rather than reviving the original one.
+  out._restoresAuditId = a.id;
   return out;
 }
 
@@ -4435,7 +4440,7 @@ function LostEntries({ audit, data, properties, onReenter }) {
   });
   const missing = [...latestByRecord.values()]
     .filter((a) => a.action !== "Delete" && a.action !== "Undo / delete")
-    .filter((a) => !(data?.[a.typeKey] || []).some((r) => r.id === a.recordId))
+    .filter((a) => !(data?.[a.typeKey] || []).some((r) => r.id === a.recordId || r._restoresAuditId === a.id))
     .sort((a, b) => b.ts - a.ts);
   const fmt = (ts) => {
     const d = new Date(ts);
