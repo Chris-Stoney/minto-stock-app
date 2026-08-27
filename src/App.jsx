@@ -810,10 +810,26 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
       return next;
     });
 
+  // Types with their own property-establishing field (trucking's fromProperty,
+  // pasture/rain/etc.'s property) already narrow their mob/paddock lists from
+  // that. Types without one (health, moves, adjust, marking, weaning,
+  // pregtest, shearing) would otherwise show every mob/paddock on the whole
+  // place — this filter is just for narrowing those lists, not a saved field.
+  const needsMobFilter =
+    cfg.fields.some((f) => f.type === "mob" || f.type === "paddock" || f.type === "mobmulti") &&
+    !cfg.fields.some((f) => f.type === "property" || f.key === "fromProperty");
+  const [mobFilterProperty, setMobFilterProperty] = useState(
+    () => defaults?._filterProperty || defaults?.property || defaults?.fromProperty || ""
+  );
+
   const visible = cfg.fields.filter((f) => !f.showIf || f.showIf(vals));
   const mobProp = vals.mobId ? mobs.find((m) => m.id === vals.mobId)?.property : "";
-  const mobOptions = vals.fromProperty ? mobs.filter((m) => m.property === vals.fromProperty) : mobs;
-  const paddockOptions = paddocksFor(vals.toProperty || vals.property || mobProp);
+  const mobOptions = vals.fromProperty
+    ? mobs.filter((m) => m.property === vals.fromProperty)
+    : needsMobFilter && mobFilterProperty
+    ? mobs.filter((m) => m.property === mobFilterProperty)
+    : mobs;
+  const paddockOptions = paddocksFor(vals.toProperty || vals.property || mobProp || (needsMobFilter ? mobFilterProperty : ""));
 
   const submit = () => {
     if (typeKey === "marking" && !(num(vals.msHead) > 0 || num(vals.femHead) > 0 || num(vals.maleHead) > 0)) {
@@ -835,7 +851,9 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
         return;
       }
     }
-    onSave({ ...vals, id: uid(), createdAt: Date.now() });
+    const clean = { ...vals };
+    delete clean._filterProperty; // was only ever a seed for the filter above, not a real field
+    onSave({ ...clean, id: uid(), createdAt: Date.now() });
   };
 
   return (
@@ -843,6 +861,17 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
       <div className="form-head">
         <Chip color={cfg.tag}>{isEditing ? "Edit — " : ""}{cfg.single}</Chip>
       </div>
+      {needsMobFilter && (
+        <div className="f-row">
+          <label className="f-label">Filter mob / paddock lists to a property</label>
+          <select value={mobFilterProperty} onChange={(e) => setMobFilterProperty(e.target.value)}>
+            <option value="">All properties</option>
+            {properties.map((p) => (
+              <option key={p}>{p}</option>
+            ))}
+          </select>
+        </div>
+      )}
       {visible.map((f) =>
         f.type === "mobmulti" ? (
           <div className="f-row" key={f.key}>
@@ -1203,6 +1232,15 @@ function guessDefaults(typeKey, a, properties) {
   }
   if (cfg.fields.some((f) => f.key === "notes")) {
     out.notes = "Re-entered from the Activity log (" + a.user + ", " + fmtDate(date) + ")" + (summary ? ": " + summary : "");
+  }
+  // Types like health/moves/adjust/marking don't have their own property
+  // field (it's derived from whichever mob gets picked), so there's nowhere
+  // above to put a parsed property — but it's still useful as a seed for the
+  // mob/paddock property filter, so scan for it generically: whichever
+  // summary segment happens to be an exact property name.
+  if (!out._filterProperty && !out.property && !out.fromProperty) {
+    const found = [title, ...subParts].find((v) => properties.includes(v));
+    if (found) out._filterProperty = found;
   }
   // Rides along invisibly (not a real form field) so LostEntries can tell,
   // once this save lands, that this particular lost entry has been handled —
