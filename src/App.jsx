@@ -653,6 +653,12 @@ const RECORD_TYPES = {
   },
 };
 
+// Audit entries older than when recordId/typeKey tracking was added to logAudit
+// don't carry either — there's no id to check for. This reverse-lookup at
+// least recovers the typeKey from the action label, so those entries aren't
+// invisible to loss-detection, just less certain (see LostEntries).
+const SINGLE_TO_TYPEKEY = Object.fromEntries(Object.entries(RECORD_TYPES).map(([k, cfg]) => [cfg.single, k]));
+
 /* ------------------ Small UI atoms ------------------ */
 
 const Chip = ({ color, children }) => (
@@ -4468,18 +4474,46 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 // un-lose anything it already overwrote). Takes the latest audit entry per
 // record; if that latest entry wasn't itself a delete, and the record isn't
 // in its list, it was probably saved and then silently overwritten.
+//
+// Entries from before recordId/typeKey were added to logAudit have neither,
+// so there's no id to check for — those would otherwise be silently invisible
+// here even when genuinely lost. For those, the typeKey is recovered from the
+// action label, and "does it still exist" falls back to matching whichever
+// fields guessDefaults can confidently parse back out of the summary line
+// (e.g. rain's mm + property). That's inherently less certain than an exact
+// id match — a real edit or an intentional delete can't be told apart from
+// actual loss — so these are marked separately rather than presented as sure.
+const LOST_SIG_EXCLUDE = ["date", "notes", "_filterProperty", "_restoresAuditId"];
+
 function LostEntries({ audit, data, properties, onReenter }) {
+  const stillExistsBySignature = (typeKey, a) => {
+    const guessed = guessDefaults(typeKey, a, properties);
+    const sigKeys = Object.keys(guessed).filter((k) => !LOST_SIG_EXCLUDE.includes(k));
+    if (!sigKeys.length) return null; // nothing distinctive parsed — can't tell either way
+    return (data?.[typeKey] || []).some((r) => sigKeys.every((k) => String(r[k] ?? "") === String(guessed[k] ?? "")));
+  };
+
   const latestByRecord = new Map();
+  const legacy = [];
   (audit || []).forEach((a) => {
-    if (!a.typeKey || !a.recordId || !RECORD_TYPES[a.typeKey]) return;
-    const k = a.typeKey + ":" + a.recordId;
-    const cur = latestByRecord.get(k);
-    if (!cur || a.ts > cur.ts) latestByRecord.set(k, a);
+    if (a.typeKey && a.recordId) {
+      if (!RECORD_TYPES[a.typeKey]) return;
+      const k = a.typeKey + ":" + a.recordId;
+      const cur = latestByRecord.get(k);
+      if (!cur || a.ts > cur.ts) latestByRecord.set(k, a);
+      return;
+    }
+    if (a.typeKey || a.recordId) return; // has one but not the other — malformed, ignore
+    const typeKey = SINGLE_TO_TYPEKEY[a.action];
+    if (typeKey) legacy.push({ ...a, typeKey, legacy: true });
   });
-  const missing = [...latestByRecord.values()]
+
+  const modernMissing = [...latestByRecord.values()]
     .filter((a) => a.action !== "Delete" && a.action !== "Undo / delete")
-    .filter((a) => !(data?.[a.typeKey] || []).some((r) => r.id === a.recordId || r._restoresAuditId === a.id))
-    .sort((a, b) => b.ts - a.ts);
+    .filter((a) => !(data?.[a.typeKey] || []).some((r) => r.id === a.recordId || r._restoresAuditId === a.id));
+  const legacyMissing = legacy.filter((a) => stillExistsBySignature(a.typeKey, a) !== true);
+
+  const missing = [...modernMissing, ...legacyMissing].sort((a, b) => b.ts - a.ts);
   const fmt = (ts) => {
     const d = new Date(ts);
     const p = (n) => String(n).padStart(2, "0");
@@ -4494,14 +4528,17 @@ function LostEntries({ audit, data, properties, onReenter }) {
         Saved (they're in the Activity log below) but their record isn't in its list anymore — most likely lost to
         the near-simultaneous-save bug that's now fixed. Tap Re-enter to open the entry form pre-filled with what can
         be read back from the log line — check it over (especially anything picking a specific mob, which can't be
-        pre-filled) and save. Entries you deleted on purpose won't show up here.
+        pre-filled) and save. Entries you deleted on purpose won't show up here — except rows marked{" "}
+        <b>unconfirmed</b>: those are from before this log tracked enough detail to tell a genuine loss apart from an
+        intentional delete or a later edit, so double-check before re-entering.
       </p>
       {missing.length === 0 && <div className="empty">None found — nothing looks lost.</div>}
       {missing.map((a) => (
-        <div key={a.typeKey + ":" + a.recordId} style={{ borderBottom: "1px solid #E4E1D6", padding: "8px 0" }}>
+        <div key={(a.typeKey || "?") + ":" + (a.recordId || a.id)} style={{ borderBottom: "1px solid #E4E1D6", padding: "8px 0" }}>
           <div className="rain-row" style={{ padding: 0, border: "none" }}>
             <span>
               <b>{RECORD_TYPES[a.typeKey]?.label || a.typeKey}</b>
+              {a.legacy && <span className="whp-date"> (unconfirmed)</span>}
               {a.summary ? " — " + a.summary : ""}
               <span className="whp-date"> · {a.user}</span>
             </span>
