@@ -29,6 +29,7 @@ const KEYS = {
   calendar: "mp2:calendar",
   spendRequest: "mp2:spendRequest",
   audit: "mp2:audit",
+  dismissedLost: "mp2:dismissedLost",
   settings: "mp2:settings-v5",
 };
 
@@ -1748,6 +1749,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     shearing: [],
     woolsale: [],
     audit: [],
+    dismissedLost: [],
   });
   const [settings, setSettings] = useState({ properties: DEFAULT_PROPERTIES, classes: DEFAULT_CLASSES, pics: {}, breeds: DEFAULT_BREEDS, tagColours: DEFAULT_TAGS, statuses: DEFAULT_STATUSES, approvers: [], team: DEFAULT_TEAM, contractors: DEFAULT_CONTRACTORS, customPaddocks: {}, assets: [], assetTypes: DEFAULT_ASSET_TYPES, propertyElements: DEFAULT_PROPERTY_ELEMENTS });
   const [activeForm, setActiveForm] = useState(null); // e.g. "rain", "mob", {type:"moves", defaults}
@@ -1832,6 +1834,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         return v;
       };
       const auditData = raced === "__SLOW__" ? [] : await loadKey(KEYS.audit, []);
+      const dismissedLostData = raced === "__SLOW__" ? [] : await loadKey(KEYS.dismissedLost, []);
       setData({
         mobs: fromBaseline(mobs, "mobs"),
         moves: fromBaseline(moves, "moves"),
@@ -1853,6 +1856,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         calendar: fromBaseline(calendar, "calendar"),
         spendRequest: fromBaseline(spendRequest, "spendRequest"),
         audit: auditData,
+        dismissedLost: dismissedLostData,
       });
       setSettings({
         properties: st?.properties || DEFAULT_PROPERTIES,
@@ -1894,7 +1898,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const keys = [
       "mobs", "moves", "health", "rain", "trucking", "maint", "pasture", "adjust",
       "orders", "musters", "menu", "marking", "weaning", "pregtest", "pdkuse",
-      "shearing", "woolsale", "calendar", "spendRequest", "audit",
+      "shearing", "woolsale", "calendar", "spendRequest", "audit", "dismissedLost",
     ];
     const refresh = async () => {
       if (STORAGE.mode === "memory") return;
@@ -1955,6 +1959,16 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const logAudit = (action, summary, typeKey, recordId) => {
     const entry = { id: uid(), ts: Date.now(), user: userEmail || "unknown", action, summary: summary || "", typeKey, recordId };
     setAndSave("audit", [entry, ...(data.audit || [])].slice(0, 2000));
+  };
+
+  // Marks a "Possibly lost entries" row as handled without needing the record
+  // to actually exist — for when it was fixed some other way than the
+  // Re-enter button (typed in fresh, handled on paper, or genuinely wasn't
+  // needed). Keyed by the audit entry's own id, since legacy rows don't have
+  // a recordId to key off.
+  const dismissLostEntry = (auditId) => {
+    if ((data.dismissedLost || []).includes(auditId)) return;
+    setAndSave("dismissedLost", [auditId, ...(data.dismissedLost || [])]);
   };
 
   const properties = settings.properties;
@@ -4403,7 +4417,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               audit={data.audit || []}
               data={data}
               properties={properties}
+              dismissed={data.dismissedLost || []}
               onReenter={(typeKey, defaults) => setActiveForm({ type: typeKey, defaults })}
+              onDismiss={dismissLostEntry}
             />
             <ActivityLog audit={data.audit || []} data={data} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} />
           </>
@@ -4485,7 +4501,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 // actual loss — so these are marked separately rather than presented as sure.
 const LOST_SIG_EXCLUDE = ["date", "notes", "_filterProperty", "_restoresAuditId"];
 
-function LostEntries({ audit, data, properties, onReenter }) {
+function LostEntries({ audit, data, properties, dismissed, onReenter, onDismiss }) {
   const stillExistsBySignature = (typeKey, a) => {
     const guessed = guessDefaults(typeKey, a, properties);
     const sigKeys = Object.keys(guessed).filter((k) => !LOST_SIG_EXCLUDE.includes(k));
@@ -4513,7 +4529,8 @@ function LostEntries({ audit, data, properties, onReenter }) {
     .filter((a) => !(data?.[a.typeKey] || []).some((r) => r.id === a.recordId || r._restoresAuditId === a.id));
   const legacyMissing = legacy.filter((a) => stillExistsBySignature(a.typeKey, a) !== true);
 
-  const missing = [...modernMissing, ...legacyMissing].sort((a, b) => b.ts - a.ts);
+  const dismissedSet = new Set(dismissed || []);
+  const missing = [...modernMissing, ...legacyMissing].filter((a) => !dismissedSet.has(a.id)).sort((a, b) => b.ts - a.ts);
   const fmt = (ts) => {
     const d = new Date(ts);
     const p = (n) => String(n).padStart(2, "0");
@@ -4528,9 +4545,11 @@ function LostEntries({ audit, data, properties, onReenter }) {
         Saved (they're in the Activity log below) but their record isn't in its list anymore — most likely lost to
         the near-simultaneous-save bug that's now fixed. Tap Re-enter to open the entry form pre-filled with what can
         be read back from the log line — check it over (especially anything picking a specific mob, which can't be
-        pre-filled) and save. Entries you deleted on purpose won't show up here — except rows marked{" "}
-        <b>unconfirmed</b>: those are from before this log tracked enough detail to tell a genuine loss apart from an
-        intentional delete or a later edit, so double-check before re-entering.
+        pre-filled) and save. Already sorted it a different way (typed it in fresh, sorted it on paper, or it turns
+        out it wasn't actually missing)? Tap Mark as handled to drop it from this list for good. Entries you deleted
+        on purpose won't show up here — except rows marked <b>unconfirmed</b>: those are from before this log tracked
+        enough detail to tell a genuine loss apart from an intentional delete or a later edit, so double-check before
+        re-entering.
       </p>
       {missing.length === 0 && <div className="empty">None found — nothing looks lost.</div>}
       {missing.map((a) => (
@@ -4549,6 +4568,9 @@ function LostEntries({ audit, data, properties, onReenter }) {
           <div className="btn-row" style={{ marginTop: 6 }}>
             <button className="mini-btn" onClick={() => onReenter(a.typeKey, guessDefaults(a.typeKey, a, properties))}>
               Re-enter
+            </button>
+            <button className="mini-btn" onClick={() => onDismiss(a.id)}>
+              Mark as handled
             </button>
           </div>
         </div>
