@@ -1101,6 +1101,112 @@ const localDateStr = (d) => {
   return `${y}-${m}-${day}`;
 };
 
+// Best-effort reconstruction of a lost record's form defaults from its
+// Activity log line — the only trace left of it. Only ever sets a field when
+// the parse is confident (an exact match against known options/properties for
+// selects, a clean number for number fields); anything uncertain is left
+// blank for a person to fill in rather than risk silently-wrong data. Fields
+// tied to a specific mob or asset (mobId, assetId, loads) can never be
+// reconstructed — there's no id in the log line, only a text description —
+// so those are always left for manual selection. The original log line is
+// always carried into Notes (where the type has one) as a permanent reference.
+function guessDefaults(typeKey, a, properties) {
+  const cfg = RECORD_TYPES[typeKey];
+  const date = localDateStr(new Date(a.ts));
+  const summary = a.summary || "";
+  const dot = summary.indexOf(" · ");
+  const title = dot >= 0 ? summary.slice(0, dot) : summary;
+  const sub = dot >= 0 ? summary.slice(dot + 3) : "";
+  const subParts = sub.split(" · ").filter(Boolean);
+  const num2 = (s) => (s == null ? undefined : s.replace(/,/g, ""));
+  const isSelectOption = (key, v) => cfg.fields.find((f) => f.key === key)?.options?.includes(v);
+  const isKnownProperty = (v) => properties.includes(v);
+
+  const out = { date };
+  switch (typeKey) {
+    case "rain": {
+      const m = title.match(/^(-?[\d.]+)\s*mm\s*—\s*(.+)$/);
+      if (m) {
+        out.mm = m[1];
+        if (isKnownProperty(m[2])) out.property = m[2];
+      }
+      break;
+    }
+    case "trucking": {
+      const mType = title.match(/^(Property transfer|Sale to market|Purchase): (\d+) hd/);
+      if (mType) {
+        out.ttype = mType[1];
+        if (out.ttype === "Purchase") out.head = mType[2];
+      }
+      const mArrow = subParts[0]?.match(/^(?:(.+) )?→ (.+)$/);
+      if (mArrow) {
+        if (out.ttype === "Purchase") {
+          if (isKnownProperty(mArrow[2])) out.toProperty = mArrow[2];
+        } else {
+          if (mArrow[1] && isKnownProperty(mArrow[1])) out.fromProperty = mArrow[1];
+          if (out.ttype === "Property transfer" && isKnownProperty(mArrow[2])) out.toProperty = mArrow[2];
+          if (out.ttype === "Sale to market") out.destination = mArrow[2];
+        }
+      }
+      const mNvd = sub.match(/NVD (\S+)/);
+      if (mNvd) out.nvd = mNvd[1];
+      const mFreight = sub.match(/freight \$([\d,]+)/);
+      if (mFreight) out.freightCost = num2(mFreight[1]);
+      const mInv = sub.match(/ inv (\S+)/);
+      if (mInv) out.invoiceRef = mInv[1];
+      if (sub.includes("NLIS outstanding")) out.nlis = "Not yet recorded";
+      break;
+    }
+    case "woolsale": {
+      const m = title.match(/^Wool out: ([\d,]+) kg(?: \((\d+) bales\))?$/);
+      if (m) {
+        out.kg = num2(m[1]);
+        if (m[2]) out.bales = m[2];
+      }
+      if (subParts[0]) out.buyer = subParts[0];
+      const mPrice = subParts[1]?.match(/^\$([\d,]+)$/);
+      if (mPrice) out.price = num2(mPrice[1]);
+      break;
+    }
+    case "orders": {
+      const m = title.match(/^(Capex|Maintenance): (.+) — \$([\d,]+)$/);
+      if (m) {
+        out.category = m[1];
+        out.item = m[2];
+        out.amount = num2(m[3]);
+      }
+      if (subParts[0]) out.supplier = subParts[0];
+      if (subParts[1] && isKnownProperty(subParts[1])) out.property = subParts[1];
+      break;
+    }
+    case "musters": {
+      const m = title.match(/^(.+?) — (.+?)(?: \((.+)\))?$/);
+      if (m) {
+        if (isSelectOption("activity", m[1])) out.activity = m[1];
+        if (isKnownProperty(m[2])) out.property = m[2];
+        if (m[3]) out.pdks = m[3];
+      }
+      if (subParts[0] && !subParts[0].startsWith("Crew:")) out.startAt = subParts[0];
+      break;
+    }
+    case "calendar": {
+      const m = title.match(/^(\d{1,2}:\d{2})\s*—\s*(.+)$/);
+      if (m) {
+        out.time = m[1];
+        out.title = m[2];
+      } else if (title) out.title = title;
+      if (subParts[0] && isKnownProperty(subParts[0])) out.property = subParts[0];
+      break;
+    }
+    default:
+      break;
+  }
+  if (cfg.fields.some((f) => f.key === "notes")) {
+    out.notes = "Re-entered from the Activity log (" + a.user + ", " + fmtDate(date) + ")" + (summary ? ": " + summary : "");
+  }
+  return out;
+}
+
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 // Deterministic colour per person, so the same name always gets the same
@@ -4244,7 +4350,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 </div>
               )}
             </section>
-            <LostEntries audit={data.audit || []} data={data} />
+            <LostEntries
+              audit={data.audit || []}
+              data={data}
+              properties={properties}
+              onReenter={(typeKey, defaults) => setActiveForm({ type: typeKey, defaults })}
+            />
             <ActivityLog audit={data.audit || []} data={data} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} />
           </>
         )}
@@ -4314,7 +4425,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 // un-lose anything it already overwrote). Takes the latest audit entry per
 // record; if that latest entry wasn't itself a delete, and the record isn't
 // in its list, it was probably saved and then silently overwritten.
-function LostEntries({ audit, data }) {
+function LostEntries({ audit, data, properties, onReenter }) {
   const latestByRecord = new Map();
   (audit || []).forEach((a) => {
     if (!a.typeKey || !a.recordId || !RECORD_TYPES[a.typeKey]) return;
@@ -4338,20 +4449,28 @@ function LostEntries({ audit, data }) {
       </div>
       <p className="note">
         Saved (they're in the Activity log below) but their record isn't in its list anymore — most likely lost to
-        the near-simultaneous-save bug that's now fixed. Re-enter these if they're still needed; entries you deleted
-        on purpose won't show up here.
+        the near-simultaneous-save bug that's now fixed. Tap Re-enter to open the entry form pre-filled with what can
+        be read back from the log line — check it over (especially anything picking a specific mob, which can't be
+        pre-filled) and save. Entries you deleted on purpose won't show up here.
       </p>
       {missing.length === 0 && <div className="empty">None found — nothing looks lost.</div>}
       {missing.map((a) => (
-        <div className="rain-row" key={a.typeKey + ":" + a.recordId}>
-          <span>
-            <b>{RECORD_TYPES[a.typeKey]?.label || a.typeKey}</b>
-            {a.summary ? " — " + a.summary : ""}
-            <span className="whp-date"> · {a.user}</span>
-          </span>
-          <span className="rain-mm" style={{ color: "#8B887A", fontWeight: 600, whiteSpace: "nowrap" }}>
-            {fmt(a.ts)}
-          </span>
+        <div key={a.typeKey + ":" + a.recordId} style={{ borderBottom: "1px solid #E4E1D6", padding: "8px 0" }}>
+          <div className="rain-row" style={{ padding: 0, border: "none" }}>
+            <span>
+              <b>{RECORD_TYPES[a.typeKey]?.label || a.typeKey}</b>
+              {a.summary ? " — " + a.summary : ""}
+              <span className="whp-date"> · {a.user}</span>
+            </span>
+            <span className="rain-mm" style={{ color: "#8B887A", fontWeight: 600, whiteSpace: "nowrap" }}>
+              {fmt(a.ts)}
+            </span>
+          </div>
+          <div className="btn-row" style={{ marginTop: 6 }}>
+            <button className="mini-btn" onClick={() => onReenter(a.typeKey, guessDefaults(a.typeKey, a, properties))}>
+              Re-enter
+            </button>
+          </div>
         </div>
       ))}
     </section>
