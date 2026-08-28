@@ -3216,7 +3216,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   .filter((m) => num(m.head) < 0)
                   .map((m) => (
                     <div className="rain-row" key={m.id}>
-                      <span>
+                      <span style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                         {composeName(m)} ({m.property}) — <b className="neg">{num(m.head)}</b>
                       </span>
                       <button
@@ -3237,7 +3237,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   .filter((m) => m.paddock === INBOX && num(m.head) > 0 && (propFilter === "All" || m.property === propFilter))
                   .map((m) => (
                     <div className="rain-row" key={m.id}>
-                      <span>
+                      <span style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                         {composeName(m)} — {num(m.head).toLocaleString()} hd ({m.property})
                       </span>
                       <button className="mini-btn allocate" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
@@ -3941,7 +3941,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                       <div className="pdk-main">
                         <div className="pdk-name">Unallocated — no paddock recorded</div>
                         <div className="pdk-mob">
-                          <span>
+                          <span style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                             {composeName(m)} — {num(m.head).toLocaleString()}
                           </span>
                           <button className="mini-btn allocate" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
@@ -3956,7 +3956,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                       <div className="pdk-main">
                         <div className="pdk-name">🐂 Receiving yards — awaiting allocation</div>
                         <div className="pdk-mob">
-                          <span>
+                          <span style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                             {composeName(m)} — {num(m.head).toLocaleString()}
                           </span>
                           <button
@@ -4011,7 +4011,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                             return (
                             <div className="pdk-mob-block" key={m.id}>
                               <div className="pdk-mob">
-                                <span className={num(m.head) < 0 ? "neg" : ""}>
+                                <span className={num(m.head) < 0 ? "neg" : ""} style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                                   {composeName(m)} — {num(m.head).toLocaleString()}
                                 </span>
                               </div>
