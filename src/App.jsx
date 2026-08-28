@@ -1755,6 +1755,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const [activeForm, setActiveForm] = useState(null); // e.g. "rain", "mob", {type:"moves", defaults}
   const [recordView, setRecordView] = useState(null); // record type key
   const [editMob, setEditMob] = useState(null);
+  const [viewMob, setViewMob] = useState(null);
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState(null); // { message, onYes }
   const [commentary, setCommentary] = useState({ prop: "", text: "", loading: false });
@@ -2985,6 +2986,87 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     </div>
   );
 
+  // Every record type that can reference a mob, plus how — a plain mobId
+  // field for most, but trucking keeps its mobs in a {mobId: head} map
+  // instead (a load can carry several mobs at once).
+  const MOB_HISTORY_TYPES = ["moves", "health", "adjust", "marking", "weaning", "pregtest", "shearing"];
+  const mobHistory = (mob) =>
+    !mob
+      ? []
+      : [
+          ...MOB_HISTORY_TYPES.flatMap((tk) => (data[tk] || []).filter((r) => r.mobId === mob.id).map((r) => ({ typeKey: tk, r }))),
+          ...(data.trucking || []).filter((r) => r.loads?.[mob.id] !== undefined).map((r) => ({ typeKey: "trucking", r })),
+        ].sort((a, b) => (b.r.date > a.r.date ? 1 : b.r.date < a.r.date ? -1 : b.r.createdAt - a.r.createdAt));
+
+  const mobDetailOverlay = viewMob && (
+    <div className="overlay" onClick={(e) => e.target === e.currentTarget && setViewMob(null)}>
+      <div className="sheet">
+        <div className="card form-card">
+          <div className="form-head">
+            <Chip color={TAG.mobs}>{composeName(viewMob)}</Chip>
+          </div>
+          <section className="card" style={{ margin: "0 0 12px" }}>
+            <div className="rain-row">
+              <span>Head</span>
+              <span className="rain-mm">{num(viewMob.head).toLocaleString()}</span>
+            </div>
+            <div className="rain-row">
+              <span>Location</span>
+              <span className="rain-mm">
+                {viewMob.property}
+                {viewMob.paddock ? " · " + viewMob.paddock : ""}
+              </span>
+            </div>
+            <div className="rain-row">
+              <span>Species / class</span>
+              <span className="rain-mm">
+                {viewMob.species}
+                {viewMob.cls ? " · " + viewMob.cls : ""}
+              </span>
+            </div>
+            {viewMob.notes && (
+              <div className="rain-row">
+                <span>Notes</span>
+                <span className="rain-mm">{viewMob.notes}</span>
+              </div>
+            )}
+          </section>
+          <div className="card-title">History</div>
+          {mobHistory(viewMob).length === 0 && <div className="empty">No moves, treatments, or other records for this mob yet.</div>}
+          {mobHistory(viewMob).map(({ typeKey, r }) => {
+            const s = summarise(typeKey, r);
+            return (
+              <div className="rain-row" key={typeKey + ":" + r.id}>
+                <span>
+                  <b>{RECORD_TYPES[typeKey]?.label}</b> — {s.title}
+                  {s.sub ? <span className="whp-date"> · {s.sub}</span> : null}
+                </span>
+                <span className="rain-mm" style={{ color: "#8B887A", fontWeight: 600, whiteSpace: "nowrap" }}>
+                  {fmtDate(r.date)}
+                </span>
+              </div>
+            );
+          })}
+          <div className="btn-row" style={{ marginTop: 12 }}>
+            <button
+              className="btn primary sm"
+              onClick={() => {
+                setEditMob(viewMob);
+                setViewMob(null);
+                setActiveForm("mob");
+              }}
+            >
+              Edit mob
+            </button>
+            <button className="btn ghost sm" onClick={() => setViewMob(null)}>
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="app">
       <Style />
@@ -3403,7 +3485,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                     const dup = list.find((x) => x.id !== m.id && x.paddock === m.paddock && sameDescription(x, m));
                     return (
                     <div className="mob-row" key={m.id}>
-                      <div className="mob-info">
+                      <div className="mob-info" style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                         <div className="mob-name">{composeName(m)}</div>
                         <div className="mob-sub">
                           {m.species}
@@ -4437,6 +4519,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       )}
 
       {formOverlay}
+      {mobDetailOverlay}
       {confirm && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && setConfirm(null)}>
           <div className="confirm-box">
