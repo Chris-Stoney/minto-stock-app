@@ -1965,10 +1965,13 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // to actually exist — for when it was fixed some other way than the
   // Re-enter button (typed in fresh, handled on paper, or genuinely wasn't
   // needed). Keyed by the audit entry's own id, since legacy rows don't have
-  // a recordId to key off.
+  // a recordId to key off. Stored as {id, ...} objects, not bare strings —
+  // setAndSave's merge logic matches entries by an `.id` field, which a plain
+  // string array doesn't have; against one it was silently overwriting the
+  // previous dismissal instead of adding to it.
   const dismissLostEntry = (auditId) => {
-    if ((data.dismissedLost || []).includes(auditId)) return;
-    setAndSave("dismissedLost", [auditId, ...(data.dismissedLost || [])]);
+    if ((data.dismissedLost || []).some((d) => d.id === auditId)) return;
+    setAndSave("dismissedLost", [{ id: auditId, ts: Date.now(), user: userEmail || "unknown" }, ...(data.dismissedLost || [])]);
   };
 
   const properties = settings.properties;
@@ -4529,7 +4532,7 @@ function LostEntries({ audit, data, properties, dismissed, onReenter, onDismiss 
     .filter((a) => !(data?.[a.typeKey] || []).some((r) => r.id === a.recordId || r._restoresAuditId === a.id));
   const legacyMissing = legacy.filter((a) => stillExistsBySignature(a.typeKey, a) !== true);
 
-  const dismissedSet = new Set(dismissed || []);
+  const dismissedSet = new Set((dismissed || []).map((d) => d.id));
   const missing = [...modernMissing, ...legacyMissing].filter((a) => !dismissedSet.has(a.id)).sort((a, b) => b.ts - a.ts);
   const fmt = (ts) => {
     const d = new Date(ts);
