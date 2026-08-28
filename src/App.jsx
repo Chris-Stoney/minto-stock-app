@@ -395,7 +395,11 @@ const RECORD_TYPES = {
     tag: TAG.health,
     fields: [
       { key: "date", label: "Date", type: "date" },
-      { key: "mobId", label: "Mob", type: "mob" },
+      // A new entry can tick several mobs at once (treating a whole property
+      // in one go) — each still ends up as its own record with its own WHP/ESI
+      // clearance dates, it's just faster to enter. Editing an existing
+      // record stays single-mob (see RecordForm's mobset handling).
+      { key: "mobIds", label: "Mob(s) treated", type: "mobset" },
       { key: "product", label: "Product / treatment", type: "text" },
       { key: "batch", label: "Batch no.", type: "text", optional: true },
       { key: "dose", label: "Dose / rate", type: "text", optional: true },
@@ -792,8 +796,13 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
 
 function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames, breedList = [], assets, assetTypes, propertyElements, onSave, onCancel, defaults, isEditing }) {
   const cfg = RECORD_TYPES[typeKey];
+  const mobsetField = cfg.fields.find((f) => f.type === "mobset");
   const [vals, setVals] = useState(() => {
     const init = { date: todayStr(), ...(defaults || {}) };
+    // Existing records (and any old caller still passing the pre-mobset
+    // singular mobId) — seed the checklist from it so editing shows the
+    // right mob ticked instead of nothing.
+    if (mobsetField && !init[mobsetField.key] && init.mobId) init[mobsetField.key] = [init.mobId];
     return init;
   });
   const [err, setErr] = useState("");
@@ -823,7 +832,7 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
   // pregtest, shearing) would otherwise show every mob/paddock on the whole
   // place — this filter is just for narrowing those lists, not a saved field.
   const needsMobFilter =
-    cfg.fields.some((f) => f.type === "mob" || f.type === "paddock" || f.type === "mobmulti") &&
+    cfg.fields.some((f) => f.type === "mob" || f.type === "paddock" || f.type === "mobmulti" || f.type === "mobset") &&
     !cfg.fields.some((f) => f.type === "property" || f.key === "fromProperty");
   const [mobFilterProperty, setMobFilterProperty] = useState(
     () => defaults?._filterProperty || defaults?.property || defaults?.fromProperty || ""
@@ -853,6 +862,13 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
         }
         continue;
       }
+      if (f.type === "mobset") {
+        if (!(vals[f.key] || []).length) {
+          setErr("Tick at least one mob");
+          return;
+        }
+        continue;
+      }
       if (!f.optional && !vals[f.key]) {
         setErr(`${f.label} is required`);
         return;
@@ -860,6 +876,18 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
     }
     const clean = { ...vals };
     delete clean._filterProperty; // was only ever a seed for the filter above, not a real field
+    if (mobsetField) {
+      const ids = clean[mobsetField.key] || [];
+      delete clean[mobsetField.key];
+      if (!isEditing && ids.length > 1) {
+        // One record per mob, each with its own WHP/ESI etc. worked out from
+        // its own mob — not one combined record like Sale/Transfer do.
+        ids.forEach((mobId) => onSave({ ...clean, mobId, id: uid(), createdAt: Date.now() }));
+        return;
+      }
+      onSave({ ...clean, mobId: ids[0], id: uid(), createdAt: Date.now() });
+      return;
+    }
     onSave({ ...clean, id: uid(), createdAt: Date.now() });
   };
 
@@ -919,12 +947,39 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
               })}
             </div>
           </div>
+        ) : f.type === "mobset" && !isEditing ? (
+          // New entries can tick several mobs — see submit() for why editing
+          // stays single-mob instead (one saved record per mob picked here).
+          <div className="f-row" key={f.key}>
+            <label className="f-label">{f.label}</label>
+            <div className="loads-box">
+              {mobOptions.length === 0 && <div className="empty">No mobs at this property.</div>}
+              {mobOptions.map((m) => {
+                const ids = vals[f.key] || [];
+                const on = ids.includes(m.id);
+                return (
+                  <div className="load-row" key={m.id}>
+                    <label className="load-label">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => set(f.key, on ? ids.filter((id) => id !== m.id) : [...ids, m.id])}
+                      />
+                      <span>
+                        {composeName(m)} <span className="load-have">({num(m.head).toLocaleString()})</span>
+                      </span>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         ) : (
         <Field
           key={f.key}
-          f={f}
-          value={vals[f.key]}
-          onChange={set}
+          f={f.type === "mobset" ? { ...f, type: "mob" } : f}
+          value={f.type === "mobset" ? (vals[f.key] || [])[0] || "" : vals[f.key]}
+          onChange={f.type === "mobset" ? (k, v) => set(f.key, v ? [v] : []) : set}
           mobs={f.mobFilter ? mobOptions.filter(f.mobFilter) : mobOptions}
           breeds={breedList}
           paddocks={paddockOptions}
@@ -3503,7 +3558,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                         <button className="mini-btn" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
                           Move
                         </button>
-                        <button className="mini-btn" onClick={() => setActiveForm({ type: "health", defaults: { mobId: m.id } })}>
+                        <button className="mini-btn" onClick={() => setActiveForm({ type: "health", defaults: { mobIds: [m.id] } })}>
                           Treat
                         </button>
                         {WOOL_ELIGIBLE(m) && (
@@ -4024,7 +4079,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                                 <button className="mini-btn" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
                                   Move
                                 </button>
-                                <button className="mini-btn" onClick={() => setActiveForm({ type: "health", defaults: { mobId: m.id } })}>
+                                <button className="mini-btn" onClick={() => setActiveForm({ type: "health", defaults: { mobIds: [m.id] } })}>
                                   Treat
                                 </button>
                                 {WOOL_ELIGIBLE(m) && (
