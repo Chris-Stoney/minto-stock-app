@@ -3417,18 +3417,26 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                           {o.requestedBy ? " · raised by " + o.requestedBy : ""}
                         </div>
                       </div>
-                      {canApprove ? (
-                        <div className="po-actions">
-                          <button className="mini-btn approve" onClick={() => decideOrder(o.id, "Approved")}>
-                            Approve
-                          </button>
-                          <button className="mini-btn danger" onClick={() => decideOrder(o.id, "Declined")}>
-                            Decline
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="po-wait">Awaiting approver</span>
-                      )}
+                      <div className="po-actions">
+                        <button
+                          className="mini-btn"
+                          onClick={() => setActiveForm({ type: "orders", defaults: o, editId: o.id })}
+                        >
+                          Edit
+                        </button>
+                        {canApprove ? (
+                          <>
+                            <button className="mini-btn approve" onClick={() => decideOrder(o.id, "Approved")}>
+                              Approve
+                            </button>
+                            <button className="mini-btn danger" onClick={() => decideOrder(o.id, "Declined")}>
+                              Decline
+                            </button>
+                          </>
+                        ) : (
+                          <span className="po-wait">Awaiting approver</span>
+                        )}
+                      </div>
                     </div>
                   ))}
               </section>
