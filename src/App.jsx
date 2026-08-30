@@ -630,7 +630,11 @@ const RECORD_TYPES = {
       { key: "assetId", label: "Asset", type: "asset", showIf: (v) => v.category === "Assets" },
       { key: "meterReading", label: "Meter reading (hours or km)", type: "number", optional: true, showIf: (v) => v.category === "Assets" },
       { key: "faultNote", label: "Fault note", type: "textarea", optional: true, showIf: (v) => v.category === "Assets" },
-      { key: "property", label: "Property", type: "property", showIf: (v) => v.category === "Infrastructure" },
+      // Ticking several properties raises one request per property (see
+      // RecordForm's propertyset handling) — each gets its own PO if major,
+      // correctly attributed, rather than one request that spans several
+      // budgets/approvers.
+      { key: "properties", label: "Property", type: "propertyset", showIf: (v) => v.category === "Infrastructure" },
       { key: "propertyElement", label: "Property element", type: "select", optionsFrom: "propertyElements", showIf: (v) => v.category === "Infrastructure" },
       { key: "locationText", label: "Describe the location on the property", type: "text", showIf: (v) => v.category === "Infrastructure" },
       { key: "isMajorProject", label: "Major project — needs a Purchase Order?", type: "select", options: ["No", "Yes — raise a PO"] },
@@ -797,12 +801,15 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
 function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames, breedList = [], assets, assetTypes, propertyElements, onSave, onCancel, defaults, isEditing }) {
   const cfg = RECORD_TYPES[typeKey];
   const mobsetField = cfg.fields.find((f) => f.type === "mobset");
+  const propertysetField = cfg.fields.find((f) => f.type === "propertyset");
   const [vals, setVals] = useState(() => {
     const init = { date: todayStr(), ...(defaults || {}) };
     // Existing records (and any old caller still passing the pre-mobset
-    // singular mobId) — seed the checklist from it so editing shows the
-    // right mob ticked instead of nothing.
+    // singular mobId, or spendRequest's old singular property) — seed the
+    // checklist from it so editing shows the right one ticked instead of
+    // nothing.
     if (mobsetField && !init[mobsetField.key] && init.mobId) init[mobsetField.key] = [init.mobId];
+    if (propertysetField && !init[propertysetField.key] && init.property) init[propertysetField.key] = [init.property];
     return init;
   });
   const [err, setErr] = useState("");
@@ -814,7 +821,9 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
       // leaving stale hidden values behind.
       if (ASSET_INFRA_BRANCHED_TYPES.includes(typeKey) && k === "category") {
         const assetFields = ["assetType", "assetId", "meterReading", "faultNote"];
-        const infraFields = ["property", "propertyElement", "locationText"];
+        // "property" for maint (still singular), "properties" for
+        // spendRequest (propertyset, since a request can span several).
+        const infraFields = ["property", "properties", "propertyElement", "locationText"];
         (v === "Assets" ? infraFields : assetFields).forEach((f) => delete next[f]);
       }
       // Changing asset type invalidates whichever specific asset was picked
@@ -869,6 +878,13 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
         }
         continue;
       }
+      if (f.type === "propertyset") {
+        if (!(vals[f.key] || []).length) {
+          setErr("Tick at least one property");
+          return;
+        }
+        continue;
+      }
       if (!f.optional && !vals[f.key]) {
         setErr(`${f.label} is required`);
         return;
@@ -886,6 +902,19 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
         return;
       }
       onSave({ ...clean, mobId: ids[0], id: uid(), createdAt: Date.now() });
+      return;
+    }
+    if (propertysetField) {
+      const props = clean[propertysetField.key] || [];
+      delete clean[propertysetField.key];
+      if (!isEditing && props.length > 1) {
+        // One request per property, each raising its own PO if major —
+        // correctly attributed rather than one request spanning several
+        // budgets/approvers.
+        props.forEach((property) => onSave({ ...clean, property, id: uid(), createdAt: Date.now() }));
+        return;
+      }
+      onSave({ ...clean, property: props[0], id: uid(), createdAt: Date.now() });
       return;
     }
     onSave({ ...clean, id: uid(), createdAt: Date.now() });
@@ -974,12 +1003,38 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
               })}
             </div>
           </div>
+        ) : f.type === "propertyset" && !isEditing ? (
+          // New entries can tick several properties — see submit() for why
+          // editing stays single (one saved request per property picked here).
+          <div className="f-row" key={f.key}>
+            <label className="f-label">{f.label}</label>
+            <div className="loads-box">
+              {properties.map((p) => {
+                const ids = vals[f.key] || [];
+                const on = ids.includes(p);
+                return (
+                  <div className="load-row" key={p}>
+                    <label className="load-label">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => set(f.key, on ? ids.filter((id) => id !== p) : [...ids, p])}
+                      />
+                      <span>{p}</span>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         ) : (
         <Field
           key={f.key}
-          f={f.type === "mobset" ? { ...f, type: "mob" } : f}
-          value={f.type === "mobset" ? (vals[f.key] || [])[0] || "" : vals[f.key]}
-          onChange={f.type === "mobset" ? (k, v) => set(f.key, v ? [v] : []) : set}
+          f={f.type === "mobset" ? { ...f, type: "mob" } : f.type === "propertyset" ? { ...f, type: "property" } : f}
+          value={
+            f.type === "mobset" || f.type === "propertyset" ? (vals[f.key] || [])[0] || "" : vals[f.key]
+          }
+          onChange={f.type === "mobset" || f.type === "propertyset" ? (k, v) => set(f.key, v ? [v] : []) : set}
           mobs={f.mobFilter ? mobOptions.filter(f.mobFilter) : mobOptions}
           breeds={breedList}
           paddocks={paddockOptions}
