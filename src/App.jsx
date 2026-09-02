@@ -1938,12 +1938,19 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       } else {
         [mobs, moves, health, rain, trucking, maint, pasture, adjust, orders, musters, menu, marking, weaning, pregtest, pdkuse, shearing, woolsale, calendar, spendRequest, st] = raced;
       }
-      const fromBaseline = (cur, k) => {
-        if (cur && cur.length) return cur;
-        const v = JSON.parse(JSON.stringify(BASELINE[k] || []));
-        if (!PREVIEW && v.length) saveKey(KEYS[k], v);
-        return v;
-      };
+      // Only ever a LOCAL display fallback — never writes it back. loadKey
+      // silently returns [] on any fetch error (a timeout, a rate limit, one
+      // flaky request among the ~20 fired here), not just on a genuinely
+      // empty key, so "cur is empty" is not reliable evidence there's nothing
+      // real on the server. Writing baseline data back on that basis used to
+      // silently wipe whatever the team had actually entered back to the 3
+      // August snapshot the moment any one person's load had a bad moment on
+      // a flaky connection — it doesn't need two people saving at once the
+      // way the earlier bug did, just one slow fetch. A real one-time seed of
+      // an empty key should be a deliberate action, the way the "Reset to 17
+      // July baseline" button already is for mobs — never an automatic side
+      // effect of loading the page.
+      const fromBaseline = (cur, k) => (cur && cur.length ? cur : JSON.parse(JSON.stringify(BASELINE[k] || [])));
       const auditData = raced === "__SLOW__" ? [] : await loadKey(KEYS.audit, []);
       const dismissedLostData = raced === "__SLOW__" ? [] : await loadKey(KEYS.dismissedLost, []);
       setData({
