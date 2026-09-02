@@ -374,6 +374,35 @@ async function casSaveKey(key, val, expectedUpdatedAt) {
   }
 }
 
+/* A save that can't reach Supabase — offline, a dropped connection, a run of
+   bad luck — used to just fail silently: the screen still said "Saved"
+   because the optimistic local update is real, but nothing was ever written
+   anywhere, and the entry was gone for good the moment the tab closed or
+   reloaded. This queue is the fix: a write that can't land goes here instead,
+   in plain browser localStorage (never the swappable backend — it has to
+   survive precisely when that backend is unreachable), and gets replayed
+   automatically once the connection is back. Always device-local, by design;
+   the whole point is to survive a period with no shared storage at all. */
+const PENDING_QUEUE_KEY = "mp2-pending-writes";
+function readPendingQueue() {
+  try {
+    const raw = window.localStorage.getItem(PENDING_QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+function writePendingQueue(queue) {
+  try {
+    window.localStorage.setItem(PENDING_QUEUE_KEY, JSON.stringify(queue));
+  } catch {}
+}
+function queuePendingWrite(entry) {
+  const queue = readPendingQueue();
+  queue.push({ id: uid(), ts: Date.now(), ...entry });
+  writePendingQueue(queue);
+}
+
 /* ------------------ Record type configs ------------------ */
 
 const RECORD_TYPES = {
@@ -1874,6 +1903,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const [pdkView, setPdkView] = useState("map"); // map = by paddock, list = stock register
   const [appError, setAppError] = useState("");
   const [storageMode, setStorageMode] = useState("checking");
+  const [pendingCount, setPendingCount] = useState(() => readPendingQueue().length);
   useEffect(() => {
     const h = (e) => {
       const msg = String((e && (e.message || (e.reason && e.reason.message))) || "Unknown error");
@@ -2030,9 +2060,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           return next;
         });
       } catch {}
+      replayPendingQueue();
     };
+    replayPendingQueue(); // catch up on anything still queued from last time the tab was open
+    window.addEventListener("online", replayPendingQueue);
     const t = setInterval(refresh, 12000);
-    return () => clearInterval(t);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("online", replayPendingQueue);
+    };
   }, [loaded]);
 
   const postToGeneralChat = async (text) => {
@@ -2160,6 +2196,29 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 
   const mobById = (id) => data.mobs.find((m) => m.id === id);
 
+  // Fetches fresh, folds in changed/removedIds, and writes it back
+  // conditionally, retrying on conflict — pulled out of setAndSave so a
+  // queued write (see below) can redo exactly this later against whatever's
+  // actually on the server by then, not just what failed to save originally.
+  const mergeAndWrite = async (key, changed, removedIds) => {
+    let merged;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { value: fresh, updatedAt } = await loadKeyMeta(KEYS[key], null);
+      const base = fresh || [];
+      merged = base.filter((r) => !removedIds.includes(r.id));
+      changed.forEach((r) => {
+        const idx = merged.findIndex((m) => m.id === r.id);
+        if (idx >= 0) merged[idx] = r;
+        else merged = [r, ...merged];
+      });
+      const result = await casSaveKey(KEYS[key], merged, updatedAt);
+      if (result === true) return { landed: true, merged };
+      if (result === null) return { landed: false, merged }; // real error (e.g. offline) — caller should queue
+      // result === false: someone else wrote in between — loop and retry
+    }
+    return { landed: false, merged }; // exhausted retries under sustained contention — caller should queue
+  };
+
   // Two people saving around the same time can otherwise silently erase each
   // other's records: a plain "re-fetch, merge, write" still has a gap between
   // the fetch and the write where someone else's save can land — and a second
@@ -2167,6 +2226,13 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // overwrite it. So the write is conditional on nobody else having written
   // since this save's fetch (see casSaveKey); if that check fails, it re-reads
   // the newer copy and retries the merge, instead of overwriting blind.
+  //
+  // A write that still can't land after that — most commonly no connection at
+  // all — used to just be lost: the screen said "Saved" (the optimistic local
+  // update below is real) but nothing was ever written anywhere. Now it's
+  // queued locally and retried automatically once the connection is back
+  // (see replayPendingQueue), so patchy reception at the yards can delay a
+  // save without silently eating it.
   const setAndSave = (key, arr) => {
     const before = data[key] || [];
     setData((d) => ({ ...d, [key]: arr }));
@@ -2181,33 +2247,36 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       const afterIds = new Set(arr.map((r) => r.id));
       const removedIds = [...beforeIds].filter((id) => !afterIds.has(id));
       const changed = arr.filter((r) => !before.find((b) => b.id === r.id && b === r));
+      if (!removedIds.length && !changed.length) return; // nothing actually changed for this key
 
-      let merged = arr;
-      let landed = false;
-      for (let attempt = 0; attempt < 6 && !landed; attempt++) {
-        const { value: fresh, updatedAt } = await loadKeyMeta(KEYS[key], null);
-        const base = fresh || [];
-        merged = base.filter((r) => !removedIds.includes(r.id));
-        changed.forEach((r) => {
-          const idx = merged.findIndex((m) => m.id === r.id);
-          if (idx >= 0) merged[idx] = r;
-          else merged = [r, ...merged];
-        });
-        const result = await casSaveKey(KEYS[key], merged, updatedAt);
-        if (result === true) landed = true;
-        else if (result === null) break; // real error — stop retrying, fall back below
-        // result === false: someone else wrote in between — loop and retry
-      }
+      const { landed, merged } = await mergeAndWrite(key, changed, removedIds);
       if (landed) {
         setData((d) => (d[key] === arr ? { ...d, [key]: merged } : d));
       } else {
-        // Retries exhausted under contention, or a real error broke the loop —
-        // still write the best merge we have rather than silently dropping it.
-        const ok = await saveKey(KEYS[key], merged);
-        if (!ok) setStorageMode("memory");
-        else setData((d) => (d[key] === arr ? { ...d, [key]: merged } : d));
+        queuePendingWrite({ key, changed, removedIds });
+        setPendingCount((n) => n + 1);
       }
     })();
+  };
+
+  // Retries everything queued while offline (or otherwise unreachable),
+  // oldest first — each redoes the full fetch-merge-write cycle against
+  // whatever's actually on the server now, so it's safe even if other people
+  // saved in the meantime. Called on reconnect, on the periodic refresh
+  // below, and once on load in case a write was still queued from last time
+  // the tab was open.
+  const replayPendingQueue = async () => {
+    if (STORAGE.mode !== "shared") return;
+    const queue = readPendingQueue();
+    if (!queue.length) return;
+    const remaining = [];
+    for (const item of queue) {
+      const { landed, merged } = await mergeAndWrite(item.key, item.changed, item.removedIds);
+      if (landed) setData((d) => ({ ...d, [item.key]: merged }));
+      else remaining.push(item);
+    }
+    writePendingQueue(remaining);
+    setPendingCount(remaining.length);
   };
 
   /* ---- save handlers ---- */
@@ -3219,6 +3288,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           <div className="mode-banner">
             Trial mode: records you enter last for this session only. Send permanent number changes to Chris to be
             locked into the next build.
+          </div>
+        )}
+        {!PREVIEW && pendingCount > 0 && (
+          <div className="mode-banner">
+            📡 {pendingCount} change{pendingCount === 1 ? "" : "s"} saved on this device, waiting to sync — nothing is
+            lost, they'll send automatically once you're back in range.
           </div>
         )}
         {appError && (
