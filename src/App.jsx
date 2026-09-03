@@ -276,6 +276,22 @@ const RECOVERY_RECORDS = {
     {"date":"2026-08-24","mobId":"t3h1fiqmrn4whw6","product":"Q Drench","dose":"12ml","whp":"28","esi":"28","treatedBy":"Ben Judd Kate","id":"08wfdidmtccs15i","createdAt":1787885355222,"mobName":"White tag · Stud ultra ewe lambs","property":"Minto","whpClear":"2026-09-21","esiClear":"2026-09-21"},
     {"date":"2026-08-24","mobId":"0dtmafgmtav8u7h","product":"Q Drench","dose":"10ml","whp":"28","esi":"28","treatedBy":"Ben Judd Kate","id":"m11dgf5mtccr728","createdAt":1787885316224,"mobName":"Ultra · Orange tag · Stud ultra ewe lambs","property":"Minto","whpClear":"2026-09-21","esiClear":"2026-09-21"},
     {"date":"2026-08-05","mobId":"f0d5wrlmrn4whw6","product":"Baymec","whp":"42","esi":"42","treatedBy":"Ben Judd Kate","id":"3y4gho6mtc9wquf","createdAt":1787880574073,"mobName":"Stud Angus heifers","property":"Minto","whpClear":"2026-09-16","esiClear":"2026-09-16","batch":"E266437A"},
+    // Fourth pass — these predate typeKey/recordId tracking entirely (no
+    // recordId in the Activity log at all), so they were never caught by the
+    // backup-diff that found the third pass above. Found instead by reading
+    // the log itself for "Treatment" entries with no matching record in any
+    // backup. Four have exact original data recovered from the 7 and 18 Aug
+    // backups (the last snapshot each was still present in before getting
+    // lost); the fifth (baymec on White tag Heifers) has no surviving backup
+    // record at all — it was entered twice 67s apart (audit ids 5ikgztrmsfosvze
+    // and x17vl6pmsforfx5, both "baymec · 25 · WHP until 15/09/26") and gone
+    // from the very next backup either way, so treated as one real treatment
+    // entered twice by mistake, not two, and reconstructed from the log text.
+    {"date":"2026-08-17","mobId":"z25d757mswhz74o","product":"baymec","whp":"42","dose":"40","esi":"42","treatedBy":"judd ben","id":"kq9vvf8mswnbz3u","createdAt":1786935623034,"mobName":"Black tag · Steers","property":"Minto","whpClear":"2026-09-28","esiClear":"2026-09-28"},
+    {"date":"2026-08-17","mobId":"0pyxq4wmss7hly5","product":"baymec 5in 1","batch":"E266437A","whp":"42","esi":"42","treatedBy":"judd ben","id":"xbr3ck0mswna6eh","createdAt":1786935539177,"mobName":"F1 · Calves · ex QLD","property":"Minto","whpClear":"2026-09-28","esiClear":"2026-09-28"},
+    {"date":"2026-08-17","mobId":"71v9ul9mswn00ca","product":"baymec plus tasvax","dose":"25ml","whp":"42","esi":"42","batch":"E266437A","treatedBy":"judd ben","id":"0z1rvl2mswn90f8","createdAt":1786935484772,"mobName":"F1 · Calves","property":"Minto","whpClear":"2026-09-28","esiClear":"2026-09-28"},
+    {"date":"2026-08-05","mobId":"s93ppx2mrn4whw6","product":"zinc sulphate","dose":"3 bags","whp":"0","id":"1e6qqdsmsfp6iba","createdAt":1785910802230,"mobName":"Dorper · White tag · Weaner lambs","property":"Linleigh","whpClear":"2026-08-05"},
+    {"date":"2026-08-05","mobId":"stnwww6msfog50y","product":"baymec","dose":"25","whp":"41","esi":"41","id":"5ikgztrmsfosvze","createdAt":1785910166762,"mobName":"Angus · White tag · Heifers · Heifers","property":"Minto","whpClear":"2026-09-15","esiClear":"2026-09-15","notes":"Reconstructed from the Activity log only [no fuller record survived in any backup — entered twice 67s apart, treated as one real treatment]"},
   ],
 };
 
