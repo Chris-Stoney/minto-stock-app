@@ -1545,6 +1545,23 @@ function guessDefaults(typeKey, a, properties) {
       if (subParts[0] && isKnownProperty(subParts[0])) out.property = subParts[0];
       break;
     }
+    case "health": {
+      // mobName itself is "breed · tag · cls · status", so the generic " · "
+      // split above (title/sub) cuts it apart mid-name — parse the raw
+      // summary directly instead, splitting on the " — " summarise() actually
+      // uses between mobName and product. Without this, sigKeys below ends up
+      // empty for every legacy health entry (no mobName/product ever guessed),
+      // so stillExistsBySignature can never return true for one — a restored
+      // record would sit in "possibly lost" forever no matter what.
+      const em = summary.indexOf(" — ");
+      if (em >= 0) {
+        out.mobName = summary.slice(0, em);
+        const rest = summary.slice(em + 3);
+        const restDot = rest.indexOf(" · ");
+        out.product = restDot >= 0 ? rest.slice(0, restDot) : rest;
+      }
+      break;
+    }
     default:
       break;
   }
