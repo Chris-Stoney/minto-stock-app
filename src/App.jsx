@@ -3427,6 +3427,44 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     setExportText(JSON.stringify({ exported: new Date().toISOString(), build: BUILD, ...data }));
   };
 
+  // Every exact class recorded, per property — not the coarse Home-tab
+  // groups (which fold e.g. "Weaner lambs" and "Ewe lambs" both into "Young
+  // sheep"). Zero-head mobs are excluded since they're not real stock on the
+  // ground; everything else is included regardless of paddock.
+  const exportStockByClassCsv = () => {
+    const esc = (v) => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const rows = [];
+    properties.forEach((prop) => {
+      const byCls = {};
+      data.mobs
+        .filter((m) => m.property === prop && num(m.head) > 0)
+        .forEach((m) => {
+          const key = m.species + "|" + (m.cls || "Unclassed");
+          byCls[key] = (byCls[key] || 0) + num(m.head);
+        });
+      Object.entries(byCls)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .forEach(([key, head]) => {
+          const [species, cls] = key.split("|");
+          rows.push({ property: prop, species, cls, head });
+        });
+    });
+    const header = ["Property", "Species", "Class", "Head"];
+    const lines = [header.join(",")];
+    rows.forEach((r) => lines.push([r.property, r.species, r.cls, r.head].map(esc).join(",")));
+    const csv = lines.join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "stock-by-class-" + todayStr() + ".csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   /* ---------------- render ---------------- */
 
   if (!loaded)
@@ -5009,6 +5047,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 </button>
                 <button className="btn ghost" onClick={exportData}>
                   Export (JSON)
+                </button>
+                <button className="btn ghost" onClick={exportStockByClassCsv}>
+                  Stock by class (CSV)
                 </button>
               </div>
               {exportText && (
