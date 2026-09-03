@@ -1298,6 +1298,7 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
       cls: "",
       status: "",
       origin: "",
+      dropYear: "",
       species: "Cattle",
       head: "",
       property: properties[0] || "",
@@ -1393,11 +1394,19 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
         {sel("Class", "cls", classes?.[vals.species] || [], false)}
         {sel("Status", "status", settings.statuses?.[vals.species] || [])}
       </div>
-      <div className="f-row">
-        <label className="f-label">
-          Origin (bought in from) <span className="opt">optional</span>
-        </label>
-        <input value={vals.origin || ""} onChange={(e) => set("origin", e.target.value)} placeholder="e.g. Mansfield, QLD" />
+      <div className="f-grid2">
+        <div className="f-row">
+          <label className="f-label">
+            Origin (bought in from) <span className="opt">optional</span>
+          </label>
+          <input value={vals.origin || ""} onChange={(e) => set("origin", e.target.value)} placeholder="e.g. Mansfield, QLD" />
+        </div>
+        <div className="f-row">
+          <label className="f-label">
+            Drop year <span className="opt">optional</span>
+          </label>
+          <input value={vals.dropYear || ""} onChange={(e) => set("dropYear", e.target.value)} placeholder="e.g. 2024" />
+        </div>
       </div>
       <div className="f-grid2">
         <div className="f-row">
@@ -3442,19 +3451,19 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       data.mobs
         .filter((m) => m.property === prop && num(m.head) > 0)
         .forEach((m) => {
-          const key = m.species + "|" + (m.cls || "Unclassed");
+          const key = m.species + "|" + (m.cls || "Unclassed") + "|" + (m.dropYear || "");
           byCls[key] = (byCls[key] || 0) + num(m.head);
         });
       Object.entries(byCls)
         .sort((a, b) => a[0].localeCompare(b[0]))
         .forEach(([key, head]) => {
-          const [species, cls] = key.split("|");
-          rows.push({ property: prop, species, cls, head });
+          const [species, cls, dropYear] = key.split("|");
+          rows.push({ property: prop, species, cls, dropYear, head });
         });
     });
-    const header = ["Property", "Species", "Class", "Head"];
+    const header = ["Property", "Species", "Class", "Drop year", "Head"];
     const lines = [header.join(",")];
-    rows.forEach((r) => lines.push([r.property, r.species, r.cls, r.head].map(esc).join(",")));
+    rows.forEach((r) => lines.push([r.property, r.species, r.cls, r.dropYear, r.head].map(esc).join(",")));
     const csv = lines.join("\r\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -3562,6 +3571,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 {viewMob.cls ? " · " + viewMob.cls : ""}
               </span>
             </div>
+            {viewMob.dropYear && (
+              <div className="rain-row">
+                <span>Drop year</span>
+                <span className="rain-mm">{viewMob.dropYear}</span>
+              </div>
+            )}
             {viewMob.notes && (
               <div className="rain-row">
                 <span>Notes</span>
