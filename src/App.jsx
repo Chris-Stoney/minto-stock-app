@@ -1562,6 +1562,55 @@ function guessDefaults(typeKey, a, properties) {
       }
       break;
     }
+    // moves and adjust have the same mobName-contains-" · " problem as health
+    // above, so these parse the raw summary too rather than the generic
+    // title/sub split. weaning and pregtest don't need that — their titles
+    // never contain " · ", so the generic split already lands on the right
+    // boundary and mobName (which does contain " · ") only ever ends up
+    // inside sub, intact.
+    case "moves": {
+      const m = summary.match(/^(?:\d+ of )?(.+) → (.+?) · (?:from (.+?) · )?(.+)$/);
+      if (m) {
+        out.mobName = m[1];
+        out.toPaddock = m[2];
+        if (m[3]) out.fromPaddock = m[3];
+        if (isKnownProperty(m[4])) out.property = m[4];
+      }
+      break;
+    }
+    case "adjust": {
+      const m = summary.match(/^(.+) — (.+) \(([+-]?\d+)\) · (.+)$/);
+      if (m) {
+        out.mobName = m[1];
+        out.reason = m[2];
+        out.delta = Number(m[3]);
+        if (isKnownProperty(m[4])) out.property = m[4];
+      }
+      break;
+    }
+    case "weaning": {
+      const mTitle = title.match(/^Weaned (\d+) into (.+)$/);
+      if (mTitle) {
+        out.head = mTitle[1];
+        out.newCls = mTitle[2];
+      }
+      const mSub = sub.match(/^ex (.+?)(?: → (.+))?$/);
+      if (mSub) {
+        out.mobName = mSub[1];
+        if (mSub[2]) out.toPaddock = mSub[2];
+      }
+      break;
+    }
+    case "pregtest": {
+      const mTitle = title.match(/^PTE: (\d+) drafted off$/);
+      if (mTitle) out.head = mTitle[1];
+      const mSub = sub.match(/^ex (.+?)(?: → (.+))?$/);
+      if (mSub) {
+        out.mobName = mSub[1];
+        if (mSub[2]) out.toPaddock = mSub[2];
+      }
+      break;
+    }
     default:
       break;
   }
