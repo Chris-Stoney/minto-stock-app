@@ -1298,7 +1298,6 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
       cls: "",
       status: "",
       origin: "",
-      dropYear: "",
       species: "Cattle",
       head: "",
       property: properties[0] || "",
@@ -1394,19 +1393,11 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
         {sel("Class", "cls", classes?.[vals.species] || [], false)}
         {sel("Status", "status", settings.statuses?.[vals.species] || [])}
       </div>
-      <div className="f-grid2">
-        <div className="f-row">
-          <label className="f-label">
-            Origin (bought in from) <span className="opt">optional</span>
-          </label>
-          <input value={vals.origin || ""} onChange={(e) => set("origin", e.target.value)} placeholder="e.g. Mansfield, QLD" />
-        </div>
-        <div className="f-row">
-          <label className="f-label">
-            Drop year <span className="opt">optional</span>
-          </label>
-          <input value={vals.dropYear || ""} onChange={(e) => set("dropYear", e.target.value)} placeholder="e.g. 2024" />
-        </div>
+      <div className="f-row">
+        <label className="f-label">
+          Origin (bought in from) <span className="opt">optional</span>
+        </label>
+        <input value={vals.origin || ""} onChange={(e) => set("origin", e.target.value)} placeholder="e.g. Mansfield, QLD" />
       </div>
       <div className="f-grid2">
         <div className="f-row">
@@ -3436,6 +3427,18 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     setExportText(JSON.stringify({ exported: new Date().toISOString(), build: BUILD, ...data }));
   };
 
+  // Tag colour already gets recorded on almost every mob, so rather than a
+  // separate age field nobody would fill in, this reads the year straight
+  // off whatever year(s) each tag colour is mapped to in Setup — "M/A" or an
+  // unmapped colour just comes through blank. A mob with two tag colours
+  // (e.g. "Black + Blue tag", a split cohort) shows both years joined.
+  const yearForTag = (tag) => {
+    if (!tag || tag === "M/A") return "";
+    const map = settings.tagYears || {};
+    const parts = tag.split(" + ").map((p) => (p.endsWith(" tag") ? p : p + " tag"));
+    return [...new Set(parts.map((p) => map[p]).filter(Boolean))].join("/");
+  };
+
   // Every exact class recorded, per property — not the coarse Home-tab
   // groups (which fold e.g. "Weaner lambs" and "Ewe lambs" both into "Young
   // sheep"). Zero-head mobs are excluded since they're not real stock on the
@@ -3451,19 +3454,19 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       data.mobs
         .filter((m) => m.property === prop && num(m.head) > 0)
         .forEach((m) => {
-          const key = m.species + "|" + (m.cls || "Unclassed") + "|" + (m.dropYear || "");
+          const key = m.species + "|" + (m.cls || "Unclassed") + "|" + yearForTag(m.tag);
           byCls[key] = (byCls[key] || 0) + num(m.head);
         });
       Object.entries(byCls)
         .sort((a, b) => a[0].localeCompare(b[0]))
         .forEach(([key, head]) => {
-          const [species, cls, dropYear] = key.split("|");
-          rows.push({ property: prop, species, cls, dropYear, head });
+          const [species, cls, year] = key.split("|");
+          rows.push({ property: prop, species, cls, year, head });
         });
     });
-    const header = ["Property", "Species", "Class", "Drop year", "Head"];
+    const header = ["Property", "Species", "Class", "Year", "Head"];
     const lines = [header.join(",")];
-    rows.forEach((r) => lines.push([r.property, r.species, r.cls, r.dropYear, r.head].map(esc).join(",")));
+    rows.forEach((r) => lines.push([r.property, r.species, r.cls, r.year, r.head].map(esc).join(",")));
     const csv = lines.join("\r\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -3571,12 +3574,6 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 {viewMob.cls ? " · " + viewMob.cls : ""}
               </span>
             </div>
-            {viewMob.dropYear && (
-              <div className="rain-row">
-                <span>Drop year</span>
-                <span className="rain-mm">{viewMob.dropYear}</span>
-              </div>
-            )}
             {viewMob.notes && (
               <div className="rain-row">
                 <span>Notes</span>
@@ -4963,6 +4960,30 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   saveKey(KEYS.settings, next);
                 }}
               />
+              {(settings.tagColours || []).length > 0 && (
+                <section className="card">
+                  <div className="card-title">Tag colour years</div>
+                  <p className="note">
+                    What drop year does each tag colour mean on this property? Used to show a Year column in the
+                    stock-by-class export — leave a colour blank if it isn't year-specific (reused every year, or
+                    used for M/A).
+                  </p>
+                  {(settings.tagColours || []).map((t) => (
+                    <div className="f-row" key={t}>
+                      <label className="f-label">{t}</label>
+                      <input
+                        value={(settings.tagYears || {})[t] || ""}
+                        onChange={(e) => {
+                          const next = { ...settings, tagYears: { ...(settings.tagYears || {}), [t]: e.target.value } };
+                          setSettings(next);
+                          saveKey(KEYS.settings, next);
+                        }}
+                        placeholder="e.g. 2024"
+                      />
+                    </div>
+                  ))}
+                </section>
+              )}
               {["Cattle", "Sheep"].map((sp) => (
                 <ListEditor
                   key={sp}
