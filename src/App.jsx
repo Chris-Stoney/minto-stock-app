@@ -2400,31 +2400,6 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     return a + records.filter((r) => !existingIds.has(r.id)).length;
   }, 0);
 
-  // ONE-TIME: a duplicate stock adjustment found while going through the
-  // Buckanbe muster tally with the user — the same 582-missing shortfall for
-  // Ewes & lambs was logged twice, 27 Jul and 14 Aug, and the mob's book
-  // count sat unchanged at 582 the whole fortnight in between, only to be
-  // zeroed by the second entry then manually put back to 582 later. Removing
-  // the 14 Aug duplicate deliberately does NOT use the normal delete flow
-  // (which would reverse its -582 onto the mob's *current* head, adding 582
-  // back on top of a count that's already correct) — it only drops the
-  // adjustment record itself, leaving mobs untouched. Delete this whole
-  // block once applied.
-  const DUPLICATE_ADJUST_ID = "mfrhpx5mss8kg8e";
-  const hasDuplicateAdjust = (data.adjust || []).some((r) => r.id === DUPLICATE_ADJUST_ID);
-  const removeDuplicateAdjust = () => {
-    setAndSave("adjust", (data.adjust || []).filter((r) => r.id !== DUPLICATE_ADJUST_ID));
-    try {
-      logAudit(
-        "Delete (duplicate)",
-        "Stock adjustment · Ewes & lambs — Mismustered / missing (-582) · Buckanbe [removed as a duplicate of the 27 Jul entry for the same mob — mob head already reflects the correct 582 via a later fix]",
-        "adjust",
-        DUPLICATE_ADJUST_ID
-      );
-    } catch {}
-    flash("Removed duplicate adjustment");
-  };
-
   const properties = settings.properties;
 
   // Unread-chat dot on the nav button — checks every channel's latest message
@@ -4945,21 +4920,6 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   onClick={() => ask(`Restore ${recoveryRemaining} record(s) now?`, runOneTimeRecovery)}
                 >
                   Restore lost records
-                </button>
-              </section>
-            )}
-            {hasDuplicateAdjust && (
-              <section className="card">
-                <div className="card-title">⚠ Duplicate stock adjustment</div>
-                <p className="note">
-                  Buckanbe · Ewes & lambs shows "582 missing" logged twice — 27 Jul and 14 Aug. The mob's book count
-                  didn't change at all between those two dates, then got zeroed by the second entry and was later put
-                  back to 582 by hand — so this looks like the same shortfall entered twice, not two separate losses.
-                  Removing the 14 Aug entry only drops it from the log and the muster tally; it won't touch today's
-                  mob head count, which already reflects the correct 582.
-                </p>
-                <button className="btn primary" onClick={() => ask("Remove the duplicate 14 Aug entry?", removeDuplicateAdjust)}>
-                  Remove duplicate
                 </button>
               </section>
             )}
