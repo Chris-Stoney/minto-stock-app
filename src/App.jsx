@@ -2400,6 +2400,34 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     return a + records.filter((r) => !existingIds.has(r.id)).length;
   }, 0);
 
+  // ONE-TIME: Buckanbe · Black tag · Heifers (Billabong) was confirmed empty
+  // in person on 3 Sept, despite the register showing 156 hd. The paper
+  // trail explains it: 128 were sold (13 Aug) and 88 transferred to Magenta
+  // (14 Aug) — 216 gone against a starting 156, netting to 0 — but the
+  // mob's head was later reset to its original 156 with no record of why,
+  // so the register never caught up with the sale/transfer. This corrects
+  // it now that it's been physically confirmed, not inferred. Delete this
+  // block once applied.
+  const HEIFER_MOB_ID = "uxsh0u1ms2lodkc";
+  const heiferMob = (data.mobs || []).find((m) => m.id === HEIFER_MOB_ID);
+  const needsHeiferFix = heiferMob && num(heiferMob.head) !== 0;
+  const fixHeiferCount = () => {
+    const before = heiferMob;
+    setAndSave("mobs", data.mobs.map((m) => (m.id === HEIFER_MOB_ID ? { ...m, head: 0 } : m)));
+    try {
+      logAudit(
+        "Edit mob",
+        composeName(before) +
+          " — " +
+          before.property +
+          ` · ${num(before.head)} → 0 hd [confirmed empty in the paddock 3 Sept — 128 sold 13 Aug + 88 transferred to Magenta 14 Aug against a starting 156 nets to 0; head had been reset to the original count with no record of why]`,
+        "mobs",
+        HEIFER_MOB_ID
+      );
+    } catch {}
+    flash("Corrected — head set to 0");
+  };
+
   const properties = settings.properties;
 
   // Unread-chat dot on the nav button — checks every channel's latest message
@@ -2876,10 +2904,27 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   };
 
   const saveMob = (mob) => {
-    const exists = data.mobs.some((m) => m.id === mob.id);
+    const before = data.mobs.find((m) => m.id === mob.id);
+    const exists = !!before;
     const mobs = exists ? data.mobs.map((m) => (m.id === mob.id ? mob : m)) : [mob, ...data.mobs];
     setAndSave("mobs", mobs);
-    logAudit(exists ? "Edit mob" : "New mob", composeName(mob) + (mob.property ? " — " + mob.property : ""), "mobs", mob.id);
+    // Log what actually changed, not just that the mob was touched — a head
+    // count or location edit here previously left no numeric trace at all,
+    // which is exactly why a mob quietly reset from 0 back to its original
+    // count was impossible to explain from the Activity log afterwards.
+    const changes = [];
+    if (exists) {
+      if (num(before.head) !== num(mob.head)) changes.push(`${num(before.head)} → ${num(mob.head)} hd`);
+      const beforeLoc = [before.property, before.paddock].filter(Boolean).join(" · ");
+      const afterLoc = [mob.property, mob.paddock].filter(Boolean).join(" · ");
+      if (beforeLoc !== afterLoc) changes.push(`${beforeLoc || "—"} → ${afterLoc || "—"}`);
+    }
+    logAudit(
+      exists ? "Edit mob" : "New mob",
+      composeName(mob) + (mob.property ? " — " + mob.property : "") + (changes.length ? " · " + changes.join(" · ") : ""),
+      "mobs",
+      mob.id
+    );
     setActiveForm(null);
     setEditMob(null);
     flash("Mob saved");
@@ -4920,6 +4965,20 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   onClick={() => ask(`Restore ${recoveryRemaining} record(s) now?`, runOneTimeRecovery)}
                 >
                   Restore lost records
+                </button>
+              </section>
+            )}
+            {needsHeiferFix && (
+              <section className="card">
+                <div className="card-title">⚠ Register/paddock mismatch</div>
+                <p className="note">
+                  Buckanbe · Black tag · Heifers (Billabong) shows {num(heiferMob.head)} hd, confirmed empty in
+                  person. 128 were sold 13 Aug and 88 transferred to Magenta 14 Aug — against a starting 156, that
+                  nets to 0 — but the head was reset to the original count afterwards with nothing recording why.
+                  This sets it to 0 to match what's actually there.
+                </p>
+                <button className="btn primary" onClick={() => ask("Set Black tag · Heifers (Billabong) to 0 head?", fixHeiferCount)}>
+                  Correct to 0
                 </button>
               </section>
             )}
