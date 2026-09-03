@@ -2280,7 +2280,10 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // string array doesn't have; against one it was silently overwriting the
   // previous dismissal instead of adding to it.
   const dismissLostEntry = (auditId) => {
-    if ((data.dismissedLost || []).some((d) => d.id === auditId)) return;
+    // A handful of dismissals from before the {id, ts, user} shape landed are
+    // still sitting in some devices' stored lists as bare id strings — handle
+    // both so an old one doesn't get silently re-added as a duplicate.
+    if ((data.dismissedLost || []).some((d) => (typeof d === "string" ? d : d.id) === auditId)) return;
     setAndSave("dismissedLost", [{ id: auditId, ts: Date.now(), user: userEmail || "unknown" }, ...(data.dismissedLost || [])]);
   };
 
@@ -5021,7 +5024,10 @@ function LostEntries({ audit, data, properties, dismissed, onReenter, onDismiss 
     .filter((a) => !(data?.[a.typeKey] || []).some((r) => r.id === a.recordId || r._restoresAuditId === a.id));
   const legacyMissing = legacy.filter((a) => stillExistsBySignature(a.typeKey, a) !== true);
 
-  const dismissedSet = new Set((dismissed || []).map((d) => d.id));
+  // A few entries dismissed before the {id, ts, user} shape landed are still
+  // bare id strings in some stored lists — read both shapes so those old
+  // dismissals still count instead of the record silently reappearing here.
+  const dismissedSet = new Set((dismissed || []).map((d) => (typeof d === "string" ? d : d.id)));
   const missing = [...modernMissing, ...legacyMissing].filter((a) => !dismissedSet.has(a.id)).sort((a, b) => b.ts - a.ts);
   const fmt = (ts) => {
     const d = new Date(ts);
