@@ -3271,26 +3271,23 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       rows.join("\n") +
       "\n\nGive short practical commentary (under 250 words) on pasture availability and stocking: which paddocks look under pressure (high DSE/ha or low FOO), which have spare feed, suggested moves, and what to watch. Plain language for farm managers. No preamble.";
     try {
-      // TODO: this only works inside the claude.ai artifact sandbox, which injects
-      // auth for api.anthropic.com — it 404s/CORS-fails on the live hosted site.
-      // A Netlify Function proxy briefly existed here but broke every deploy for
-      // reasons we couldn't diagnose without Netlify build-log access; reverted
-      // until someone can see the actual error.
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      // Routed through a Netlify Function (holds the real API key server-side —
+      // see netlify/functions/pasture-commentary.js) rather than calling
+      // api.anthropic.com straight from the browser, which only ever worked
+      // inside the claude.ai artifact sandbox that injected auth for that
+      // domain, not on the live hosted site.
+      const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : null;
+      const response = await fetch("/.netlify/functions/pasture-commentary", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }],
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ prompt }),
       });
       const d = await response.json();
-      const text = (d.content || [])
-        .map((i) => (i.type === "text" ? i.text : ""))
-        .filter(Boolean)
-        .join("\n");
-      setCommentary({ prop, text: text || "No commentary returned — try again.", loading: false });
+      if (!response.ok) throw new Error(d.error || "Request failed");
+      setCommentary({ prop, text: d.text || "No commentary returned — try again.", loading: false });
     } catch (e) {
       setCommentary({ prop, text: "Could not generate commentary — check connection and try again.", loading: false });
     }
