@@ -125,13 +125,16 @@ const BASELINE = {"exported": "2026-08-03T05:28:40.536Z", "build": 76, "mobs": [
 
 // ============================================================
 // ONE-TIME DATA RECOVERY — see Setup → "One-time data recovery".
-// Restores 26 records lost to two now-fixed bugs (17–28 Aug 2026): the
+// Restores 82 records lost to two now-fixed bugs (5–28 Aug 2026): the
 // near-simultaneous-save race (fixed 26 Aug) and the network-hiccup
 // baseline-wipe bug (fixed 2 Sept). Sourced from the daily backup snapshots
 // with full original field data (id/createdAt preserved) — this is history/
 // paper-trail restoration only, it does NOT replay these onto today's mob
 // head counts or paddocks, which have had other legitimate activity since
 // and need the physical stocktake to correct, not a blind replay.
+// First pass (17-28 Aug) found via the Activity log directly; second pass
+// (5-14 Aug, predates recordId/typeKey tracking on that log entirely) found
+// by comparing every daily backup snapshot against current data by id.
 // DELETE this block and its Setup card once confirmed applied.
 // ============================================================
 const RECOVERY_RECORDS = {
@@ -154,15 +157,81 @@ const RECOVERY_RECORDS = {
     { date: "2026-08-28", mobId: "61xwi7ymtav8nmm", toPaddock: "Bullock", id: "n9f3l62mtcbonio", createdAt: 1787883517968, fromPaddock: "Swamp", mobName: "Ultra · Orange tag · Stud ultra ram lambs", property: "Minto" },
     { date: "2026-08-28", mobId: "kscb7l0mrn4whw6", toPaddock: "Saddling", id: "iraoqkvmtcbqvp5", createdAt: 1787883621881, fromPaddock: "Eagle", mobName: "Breeding ewes · Late", property: "Minto" },
     { date: "2026-08-26", mobId: "66w8heamrn4whw6", toPaddock: "Micks Front", id: "hu24uv3mtccff7m", createdAt: 1787884766914, fromPaddock: "Micks South", mobName: "Store cows · Store", property: "Linleigh" },
+    // Below: second pass — 5-14 Aug predates recordId/typeKey tracking on
+    // logAudit entirely, so these were found by comparing every daily backup
+    // snapshot against current data directly (by id), not via the Activity
+    // log the way the rest of this file was.
+    {"date":"2026-08-06","mobId":"o086r5kmsfovwck","toPaddock":"LD – Big Iona","id":"q8x7mrvmsi4ecaz","createdAt":1786057294283,"fromPaddock":"Inbox","mobName":"Angus · Weaner heifers · Heifers","property":"Magenta"},
+    {"date":"2026-08-06","mobId":"45aojdpmsfomevp","toPaddock":"LD – Big Iona","id":"6enkheqmsi4ekhd","createdAt":1786057304881,"fromPaddock":"Inbox","mobName":"Steers","property":"Magenta"},
+    {"date":"2026-08-06","mobId":"z15x5demsfola4r","toPaddock":"LD – Big Iona","id":"81ma3ilmsi4eqd2","createdAt":1786057312502,"fromPaddock":"Inbox","mobName":"Angus · White tag · Weaner heifers · Heifers · ex charsbury","property":"Magenta"},
+    {"date":"2026-08-13","mobId":"8yy17homs2m52l9","toPaddock":"Jack's Hut / Mingara Pdk","id":"pk4a6ghmss5zuy7","createdAt":1786664639599,"fromPaddock":"Billabong (House / Mootinara)","mobName":"Ewes & lambs","property":"Buckanbe"},
+    {"date":"2026-08-13","mobId":"gym1zdmmrn4whw6","toPaddock":"Sandridge Pdk","id":"214xzo5mss6bgyq","createdAt":1786665181346,"fromPaddock":"Two Mile Pdk","mobName":"Angus · Blue tag · Cows · ex Mansfield","property":"Buckanbe"},
+    {"date":"2026-08-13","mobId":"u7ss2enmrn4whw6","toPaddock":"Airstrip Pdk","head":"130","id":"inmlkdxmss6chkp","createdAt":1786665228793,"fromPaddock":"Two Mile Pdk","mobName":"F1 · Calves · ex QLD","property":"Buckanbe","split":true},
+    {"date":"2026-08-13","mobId":"u7ss2enmrn4whw6","head":"42","toPaddock":"Andy's Pdk","id":"kwpo45rmss6e0u6","createdAt":1786665300414,"fromPaddock":"Two Mile Pdk","mobName":"F1 · Calves · ex QLD","property":"Buckanbe","split":true},
+    {"date":"2026-08-13","mobId":"fwmf30fmrn4whw6","toPaddock":"River Pdk","id":"ym2hrv9mss6ie2c","createdAt":1786665504180,"fromPaddock":"Sandridge Pdk","mobName":"F1 · Cows","property":"Buckanbe"},
+    {"date":"2026-08-14","mobId":"5bpxcopmrn4whw6","head":"10","toPaddock":"River Pdk","id":"749zrppmss6lysl","createdAt":1786665671013,"fromPaddock":"Two Mile Pdk","mobName":"Heifers · ex Mungindi","property":"Buckanbe","split":true},
+    {"date":"2026-08-14","mobId":"ptg2fflmrn4whw6","head":"1069","toPaddock":"River Pdk","id":"9z5d1zdmss6zzcf","createdAt":1786666324911,"fromPaddock":"Sandridge Pdk","mobName":"Dorper · White tag · Ewe lambs","property":"Buckanbe","split":true},
+    {"date":"2026-08-14","mobId":"ptg2fflmrn4whw6","toPaddock":"Jack's Hut / Mingara Pdk","head":"792","id":"tnstlgqmss70z21","createdAt":1786666371193,"fromPaddock":"Sandridge Pdk","mobName":"Dorper · White tag · Ewe lambs","property":"Buckanbe","split":true},
+    {"date":"2026-08-14","mobId":"7yodf79mrn4whw6","head":"1805","toPaddock":"Wygilla Pdk","notes":"Scanned empty ","id":"ms0wn51mss735yf","createdAt":1786666473447,"fromPaddock":"Jack's Hut / Mingara Pdk","mobName":"White tag · Wether lambs","property":"Buckanbe","split":true},
+    {"date":"2026-08-14","mobId":"7u0t4emmss6zzch","toPaddock":"Two Mile Pdk","id":"5tq2z36mss8soxn","createdAt":1786669344059,"fromPaddock":"River Pdk","mobName":"Dorper · White tag · Ewe lambs","property":"Buckanbe"},
+    {"date":"2026-08-17","mobId":"yehgdqcmss7ew25","head":"19","toPaddock":"Mint","notes":"3 were Heifers","id":"zr0cqezmswhz74n","createdAt":1786926628823,"fromPaddock":"Inbox","mobName":"Black tag · Steers","property":"Minto","split":true},
+    {"date":"2026-08-17","mobId":"hvscid6mss7rb1z","toPaddock":"LD – D block","id":"81rwmgnmswmkoa3","createdAt":1786934349291,"fromPaddock":"Inbox","mobName":"Black tag · Steers","property":"Magenta"},
+    {"date":"2026-08-17","mobId":"aemjzy3mss7iwjj","toPaddock":"Swamp","notes":"killer frezer","id":"s8hc589mswmzxvw","createdAt":1786935061580,"fromPaddock":"Inbox","mobName":"Black tag · Steers","property":"Minto"},
+    {"date":"2026-08-17","mobId":"lu2dpedmss69shp","toPaddock":"Billabong (House / Mootinara)","head":"10","id":"i4i3ggnmswn12rb","createdAt":1786935114551,"fromPaddock":"Andy's Pdk","mobName":"F1 · Calves","property":"Buckanbe","split":true},
+    {"date":"2026-08-17","mobId":"71v9ul9mswn00ca","toPaddock":"Swamp","id":"gjtjbfvmswn5dqz","createdAt":1786935315419,"fromPaddock":"Inbox","mobName":"F1 · Calves","property":"Minto"},
+    {"date":"2026-08-17","mobId":"0pyxq4wmss7hly5","toPaddock":"Swamp","id":"lm4g0qnmswn5k7y","createdAt":1786935323806,"fromPaddock":"Inbox","mobName":"F1 · Calves · ex QLD","property":"Minto"},
+    {"date":"2026-08-17","mobId":"wt7vyhzmss7cph0","toPaddock":"LD – North Carrawatha","id":"fiyyoyomswnl3l4","createdAt":1786936048744,"fromPaddock":"Inbox","mobName":"Angus · Blue tag · Cows · PTE","property":"Magenta"},
+    {"date":"2026-08-17","mobId":"y7mryo9mss793ae","toPaddock":"LD – North Carrawatha","id":"oqu29d0mswnldee","createdAt":1786936061462,"fromPaddock":"Inbox","mobName":"Black tag · Heifers","property":"Magenta"},
+    {"date":"2026-08-17","mobId":"fe159vzmss77c9o","toPaddock":"LD – South Carrawatha","id":"4mrhti0mswnmgci","createdAt":1786936111938,"fromPaddock":"Inbox","mobName":"Heifers · ex Mungindi","property":"Magenta"},
+    {"date":"2026-08-17","mobId":"pzjbpf2mss7qjt9","toPaddock":"LD – South Carrawatha","id":"btzla6smswnpd83","createdAt":1786936247859,"fromPaddock":"Inbox","mobName":"Black tag · Heifers","property":"Magenta"},
   ],
   trucking: [
     { date: "2026-08-24", loads: { "j2pg1shmt6mnj40": 157 }, ttype: "Sale to market", fromProperty: "Minto", destination: "jbs", carrier: "shaw", nlis: "Recorded on NLIS", id: "nz3trazmt6mo2pb", createdAt: 1787539169711, head: 157, mobName: "Dorper · White tag · Weaner lambs", property: "Minto", species: "Sheep" },
     { date: "2026-08-24", loads: { "j2pg1shmt6mnj40": 184 }, ttype: "Sale to market", fromProperty: "Minto", destination: "corowa", carrier: "shaw", nlis: "Recorded on NLIS", id: "plu14u1mt6mq34v", createdAt: 1787539263583, head: 184, mobName: "Dorper · White tag · Weaner lambs", property: "Minto", species: "Sheep" },
     { date: "2026-08-24", loads: { "s93ppx2mrn4whw6": "188" }, ttype: "Sale to market", fromProperty: "Linleigh", destination: "jbs", carrier: "shaw", nlis: "Recorded on NLIS", id: "ijweli4mt6n01de", createdAt: 1787539727858, head: 188, mobName: "Dorper · White tag · Weaner lambs", property: "Linleigh", species: "Sheep" },
     { date: "2026-08-24", loads: { "s93ppx2mrn4whw6": "173" }, ttype: "Sale to market", fromProperty: "Linleigh", destination: "corowa ", carrier: "shaw", nlis: "Recorded on NLIS", id: "h8m423gmt6n1p75", createdAt: 1787539805393, head: 173, mobName: "Dorper · White tag · Weaner lambs", property: "Linleigh", species: "Sheep" },
+    // Second pass, 5-14 Aug (see moves' comment above) — property transfers
+    // and sales, ~700 hd across these.
+    {"date":"2026-08-05","loads":{"0pzn3hamsfov918":10},"ttype":"Property transfer","fromProperty":"Minto","toProperty":"Magenta","carrier":"macalall","nlis":"Recorded on NLIS","id":"zoiyp4ymsfovwcj","createdAt":1785910307203,"head":10,"mobName":"Angus · Weaner heifers · Heifers","property":"Minto","species":"Cattle"},
+    {"date":"2026-07-15","loads":{"u2bk376mro6u7py":88},"ttype":"Sale to market","fromProperty":"Linleigh","destination":"gathercoles","carrier":"shaw","nlis":"Recorded on NLIS","id":"noatnfamsfp5qqm","createdAt":1785910766494,"head":88,"mobName":"Dorper · White tag · Weaner lambs","property":"Linleigh","species":"Sheep"},
+    {"date":"2026-08-13","loads":{"uxsh0u1ms2lodkc":"128"},"ttype":"Sale to market","fromProperty":"Buckanbe","destination":"Killera feedlot ","nlis":"Recorded on NLIS","id":"roipvihmss61wyn","createdAt":1786664735519,"head":128,"mobName":"Black tag · Heifers","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-13","loads":{"msnhwdrms2llmd1":"128"},"ttype":"Sale to market","fromProperty":"Buckanbe","destination":"Killara feedlot ","nlis":"Recorded on NLIS","id":"d95l33pmss62tod","createdAt":1786664777917,"head":128,"mobName":"Black tag · Steers","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-14","loads":{"7etpfzxmrn4whw6":"83"},"ttype":"Sale to market","fromProperty":"Buckanbe","nlis":"Recorded on NLIS","destination":"Wagga","id":"pax053bmss6vc26","createdAt":1786666108110,"head":83,"mobName":"Breeding ewes · Early","property":"Buckanbe","species":"Sheep"},
+    {"date":"2026-08-14","loads":{"7yodf79mrn4whw6":"246"},"ttype":"Sale to market","fromProperty":"Buckanbe","destination":"Wagga","nlis":"Recorded on NLIS","id":"fs2q8rimss75kh8","createdAt":1786666585580,"head":246,"mobName":"White tag · Wether lambs","property":"Buckanbe","species":"Sheep"},
+    {"date":"2026-08-14","loads":{"5bpxcopmrn4whw6":98},"ttype":"Property transfer","fromProperty":"Buckanbe","toProperty":"Magenta","nlis":"Recorded on NLIS","id":"eravwgqmss77c9n","createdAt":1786666668251,"head":98,"mobName":"Heifers · ex Mungindi","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-14","loads":{"uxsh0u1ms2lodkc":28},"ttype":"Property transfer","fromProperty":"Buckanbe","toProperty":"Magenta","nlis":"Recorded on NLIS","id":"ipttu1hmss793ae","createdAt":1786666749926,"head":28,"mobName":"Black tag · Heifers","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-14","loads":{"1snmy1xmss6azn7":44},"ttype":"Property transfer","fromProperty":"Buckanbe","nlis":"Recorded on NLIS","toProperty":"Magenta","id":"j3nmnvfmss7cpgy","createdAt":1786666918642,"head":44,"mobName":"Angus · Blue tag · Cows · PTE","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-14","loads":{"msnhwdrms2llmd1":"22"},"ttype":"Property transfer","fromProperty":"Buckanbe","toProperty":"Minto","nlis":"Recorded on NLIS","id":"b8e6218mss7ew23","createdAt":1786667020491,"head":22,"mobName":"Black tag · Steers","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-14","loads":{"u7ss2enmrn4whw6":62},"ttype":"Property transfer","fromProperty":"Buckanbe","toProperty":"Minto","nlis":"Recorded on NLIS","id":"znj9xmgmss7hly5","createdAt":1786667147357,"head":62,"mobName":"F1 · Calves · ex QLD","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-14","loads":{"msnhwdrms2llmd1":1},"ttype":"Property transfer","fromProperty":"Buckanbe","toProperty":"Minto","nlis":"Recorded on NLIS","id":"72loevnmss7iwjj","createdAt":1786667207743,"head":1,"mobName":"Black tag · Steers","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-14","loads":{"uxsh0u1ms2lodkc":60},"ttype":"Property transfer","fromProperty":"Buckanbe","toProperty":"Magenta","nlis":"Recorded on NLIS","id":"hsx0f6smss7qjt9","createdAt":1786667564493,"head":60,"mobName":"Black tag · Heifers","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-14","loads":{"msnhwdrms2llmd1":16},"ttype":"Property transfer","fromProperty":"Buckanbe","toProperty":"Magenta","nlis":"Recorded on NLIS","id":"asg8bqcmss7rb1z","createdAt":1786667599799,"head":16,"mobName":"Black tag · Steers","property":"Buckanbe","species":"Cattle"},
+    {"date":"2026-08-14","loads":{"ptg2fflmrn4whw6":275},"ttype":"Sale to market","fromProperty":"Buckanbe","destination":"JBS ","nlis":"Recorded on NLIS","id":"6dbowxjmss8e0jx","createdAt":1786668659277,"head":275,"mobName":"Dorper · White tag · Ewe lambs","property":"Buckanbe","species":"Sheep"},
+    {"date":"2026-08-14","loads":{"7yodf79mrn4whw6":"641"},"ttype":"Sale to market","fromProperty":"Buckanbe","nlis":"Recorded on NLIS","destination":"JBS ","id":"g9khb5kmss8iryl","createdAt":1786668881421,"head":641,"mobName":"White tag · Wether lambs","property":"Buckanbe","species":"Sheep"},
+    {"date":"2026-08-17","loads":{"hvscid6mss7rb1z":16},"ttype":"Property transfer","fromProperty":"Magenta","toProperty":"Buckanbe","nlis":"Recorded on NLIS","id":"8z0uug8mswmlw2u","createdAt":1786934406055,"head":16,"mobName":"Black tag · Steers","property":"Magenta","species":"Cattle"},
+    {"date":"2026-08-17","loads":{"lu2dpedmss69shp":"76"},"ttype":"Property transfer","fromProperty":"Buckanbe","toProperty":"Minto","nlis":"Recorded on NLIS","id":"ynppbwxmswn00c9","createdAt":1786935064761,"head":76,"mobName":"F1 · Calves","property":"Buckanbe","species":"Cattle"},
   ],
   adjust: [
     { date: "2026-08-24", mobId: "aemjzy3mss7iwjj", reason: "Deaths", head: "1", notes: "freezer griffo", id: "phowpbbmt6msy5p", createdAt: 1787539397101, mobName: "Angus · Black tag · Steers", property: "Minto", cls: "Steers", species: "Cattle", delta: -1 },
+    // Second pass, 5-14 Aug (see moves' comment above).
+    {"date":"2026-08-05","mobId":"f0d5wrlmrn4whw6","reason":"Mismustered / missing","head":"3","id":"58p7tu8msfp09zf","createdAt":1785910511499,"mobName":"Stud Angus heifers","property":"Minto","cls":"Stud Angus heifers","species":"Cattle","delta":-3},
+    {"date":"2026-08-05","mobId":"t3h1fiqmrn4whw6","reason":"Deaths","head":"1","id":"hsdouz3msfp3uxp","createdAt":1785910678621,"mobName":"White tag · Stud ultra ewe lambs","property":"Minto","cls":"Stud ultra ewe lambs","species":"Sheep","delta":-1},
+    {"date":"2026-08-14","mobId":"lu2dpedmss69shp","reason":"Mismustered / missing","head":"15","id":"oe7d312mss6xb1b","createdAt":1786666200095,"mobName":"F1 · Calves","property":"Buckanbe","cls":"Calves","species":"Cattle","delta":-15},
+    {"date":"2026-08-14","mobId":"uxsh0u1ms2lodkc","reason":"Found","head":"60","id":"o9ngx11mss7oy9z","createdAt":1786667489928,"mobName":"Black tag · Heifers","property":"Buckanbe","cls":"Heifers","species":"Cattle","delta":60},
+    {"date":"2026-08-14","mobId":"msnhwdrms2llmd1","reason":"Found","head":"16","id":"70jvkspmss7pnkl","createdAt":1786667522709,"mobName":"Black tag · Steers","property":"Buckanbe","cls":"Steers","species":"Cattle","delta":16},
+    {"date":"2026-08-14","mobId":"zkxm6mqmrn4whw6","reason":"Mismustered / missing","head":"582","id":"mfrhpx5mss8kg8e","createdAt":1786668959534,"mobName":"Ewes & lambs","property":"Buckanbe","cls":"Ewes & lambs","species":"Sheep","delta":-582},
+    {"date":"2026-08-14","mobId":"7yodf79mrn4whw6","reason":"Mismustered / missing","head":"1189","id":"4wixjremss8limi","createdAt":1786669009290,"mobName":"White tag · Wether lambs","property":"Buckanbe","cls":"Wether lambs","species":"Sheep","delta":-1189},
+    {"date":"2026-08-14","mobId":"gym1zdmmrn4whw6","reason":"Found","head":"23","notes":"Black tags ","id":"0gk8lhjmss8teev","createdAt":1786669377079,"mobName":"Angus · Blue tag · Cows · ex Mansfield","property":"Buckanbe","cls":"Cows","species":"Cattle","delta":23},
+    {"date":"2026-08-17","mobId":"yehgdqcmss7ew25","reason":"Recount (set head to this number)","head":"0","notes":"Moved to Black tag heifers Minto\n","id":"15u095gmswi1zvj","createdAt":1786926759391,"mobName":"Black tag · Steers","property":"Minto","cls":"Steers","species":"Cattle","delta":-3},
+    {"date":"2026-08-17","mobId":"kscb7l0mrn4whw6","reason":"Deaths","head":"1","notes":"lambing issues ","id":"qfbkwpxmswmqrlo","createdAt":1786934633532,"mobName":"Breeding ewes · Late","property":"Minto","cls":"Breeding ewes","species":"Sheep","delta":-1},
+    {"date":"2026-08-17","mobId":"lu2dpedmss69shp","reason":"Found","head":"86","id":"9nxwvqomswmt9d0","createdAt":1786934749860,"mobName":"F1 · Calves","property":"Buckanbe","cls":"Calves","species":"Cattle","delta":86},
+    {"date":"2026-08-17","mobId":"pzjbpf2mss7qjt9","reason":"Found","head":"16","notes":"white tags","id":"fq8j0rtmswnr91v","createdAt":1786936335763,"mobName":"Black tag · Heifers","property":"Magenta","cls":"Heifers","species":"Cattle","delta":16},
+  ],
+  marking: [
+    {"date":"2026-08-14","mobId":"7etpfzxmrn4whw6","msHead":"1590","lambBreed":"Dorper","id":"kp13ymfmss6wlrw","createdAt":1786666167356,"mobName":"Breeding ewes · Early","property":"Buckanbe"},
+  ],
+  pregtest: [
+    {"date":"2026-08-13","mobId":"gym1zdmmrn4whw6","head":"44","toPaddock":"Horse Pdk","id":"0lshwi1mss6azn5","createdAt":1786665158897,"mobName":"Angus · Blue tag · Cows · ex Mansfield","property":"Buckanbe"},
   ],
   maint: [
     { date: "2026-08-19", category: "Infrastructure", property: "Dunbar", propertyElement: "Fence", locationText: "McNair's", work: "Boundary fence along Traralgon creek road being replaced \nOrganised with elders and owners ", doneBy: "Contractor ", cost: "0", id: "aeu4d10msztwvw1", createdAt: 1787128074865 },
@@ -170,6 +239,11 @@ const RECOVERY_RECORDS = {
   ],
   weaning: [
     { date: "2026-08-24", mobId: "7qap1xlmrn4whw6", head: "115", newCls: "Stud ultra ewe lambs", toPaddock: "Back", id: "x6w1xu6mt6mguky", createdAt: 1787538832594, mobName: "Ultra · Orange tag · Lambs · Ewes", property: "Minto" },
+    // Second pass, 5-14 Aug (see moves' comment above). (A second Aug 24
+    // weaning — 109 hd into Stud ultra ram lambs — was found the same way
+    // but turned out to already have its own independent re-entry surviving
+    // under a different id, so it's deliberately left out here.)
+    {"date":"2026-08-13","mobId":"kkeslttmrn4whw6","head":"78","newCls":"Calves","toPaddock":"Andy's Pdk","notes":"F1 MS weanersv","id":"xf6ikkemss69shn","createdAt":1786665102971,"mobName":"F1 · Calves","property":"Buckanbe"},
   ],
 };
 
@@ -4720,11 +4794,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               <section className="card">
                 <div className="card-title">⚠ One-time data recovery</div>
                 <p className="note">
-                  Restores {recoveryRemaining} of {recoveryTotal} records lost to the save bugs from 17–28 August
-                  (paddock moves, sales, a death, weaning, maintenance jobs) using their original data from the daily
-                  backups. This restores the paper trail only — it does not change today's mob head counts or
-                  paddocks, since those have had other legitimate activity since and need the physical stocktake to
-                  correct, not a blind replay. Safe to press more than once; already-restored records are skipped.
+                  Restores {recoveryRemaining} of {recoveryTotal} records lost to the save bugs from 5–28 August
+                  (paddock moves, sales & transfers, adjustments, weaning, marking, preg testing, maintenance jobs)
+                  using their original data from the daily backups. This restores the paper trail only — it does not
+                  change today's mob head counts or paddocks, since those have had other legitimate activity since
+                  and need the physical stocktake to correct, not a blind replay. Safe to press more than once;
+                  already-restored records are skipped.
                 </p>
                 <button
                   className="btn primary"
