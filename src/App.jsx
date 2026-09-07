@@ -1675,11 +1675,13 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
         add(r.date, { type: "calendar", label, sub, color, propColor, rec: r, editable: true });
         return;
       }
-      // Multi-day event: show it on every day it spans, not just the start day.
+      // Multi-day event: show it on every day it spans, not just the start
+      // day — flagged so the month grid can draw it as a continuous banner
+      // instead of a same dot repeated on each day.
       let d = new Date(r.date + "T00:00:00");
       const endD = new Date(r.endDate + "T00:00:00");
       while (d <= endD) {
-        add(localDateStr(d), { type: "calendar", label, sub, color, propColor, rec: r, editable: true });
+        add(localDateStr(d), { type: "calendar", label, sub, color, propColor, rec: r, editable: true, spansDays: true });
         d.setDate(d.getDate() + 1);
       }
     });
@@ -1726,6 +1728,10 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
             const key = localDateStr(d);
             const inMonth = d.getMonth() === month.getMonth();
             const items = itemsByDate[key] || [];
+            const dots = items.filter((it) => !it.spansDays);
+            const bands = items.filter((it) => it.spansDays);
+            const isRowStart = d.getDay() === 0;
+            const isRowEnd = d.getDay() === 6;
             return (
               <button
                 key={key}
@@ -1733,8 +1739,25 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
                 onClick={() => setSelectedDay(key)}
               >
                 <span className="cal-day-n">{d.getDate()}</span>
+                {bands.slice(0, 2).map((it, i) => {
+                  const roundLeft = key === it.rec.date || isRowStart;
+                  const roundRight = key === it.rec.endDate || isRowEnd;
+                  return (
+                    <span
+                      key={i}
+                      className="cal-band"
+                      title={it.label}
+                      style={{
+                        background: it.propColor || it.color,
+                        borderRadius: (roundLeft ? "4px" : "0") + " " + (roundRight ? "4px" : "0") + " " + (roundRight ? "4px" : "0") + " " + (roundLeft ? "4px" : "0"),
+                        marginLeft: roundLeft ? 0 : "-3px",
+                        marginRight: roundRight ? 0 : "-3px",
+                      }}
+                    />
+                  );
+                })}
                 <span className="cal-day-dots">
-                  {items.slice(0, 4).map((it, i) => (
+                  {dots.slice(0, 4).map((it, i) => (
                     <span key={i} className="cal-dot" style={{ background: it.color }} />
                   ))}
                 </span>
@@ -5831,6 +5854,7 @@ function Style() {
     .cal-day-dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
     .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
     .cal-dot-prop { border-radius: 2px; }
+    .cal-band { width: 100%; height: 5px; display: block; flex-shrink: 0; }
 
     .empty { color: #8B887A; font-size: 14.5px; padding: 6px 0; }
     .pdk-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid #F0EEE6; }
