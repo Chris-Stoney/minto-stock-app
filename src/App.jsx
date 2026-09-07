@@ -713,6 +713,7 @@ const RECORD_TYPES = {
       { key: "endDate", label: "Ends on (optional — for events running over a few days)", type: "date", optional: true },
       { key: "time", label: "Time (optional — for a specific appointment)", type: "time", optional: true },
       { key: "title", label: "What's happening", type: "text" },
+      { key: "activityType", label: "Type", type: "select", options: ["Muster", "Maintenance", "Staff Away", "Other"], optional: true },
       { key: "assignedTo", label: "Assigned to", type: "team", optional: true },
       { key: "property", label: "Property", type: "property", optional: true },
       { key: "notes", label: "Notes", type: "textarea", optional: true },
@@ -1662,30 +1663,31 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
       if (!date) return;
       (map[date] = map[date] || []).push(item);
     };
-    byProp(data.musters).forEach((r) => add(r.date, { type: "musters", label: r.activity || "Muster", sub: r.property, color: TAG.musters, rec: r, editable: true }));
+    byProp(data.musters).forEach((r) => add(r.date, { type: "musters", label: r.activity || "Muster", sub: r.property, color: TAG.musters, propColor: colorForPerson(r.property), rec: r, editable: true }));
     byProp(data.calendar).forEach((r) => {
-      const label = (r.time ? r.time + " — " : "") + (r.title || "Event");
+      const label = (r.time ? r.time + " — " : "") + (r.title || "Event") + (r.activityType ? " · " + r.activityType : "");
       const spansDays = r.endDate && r.endDate > r.date;
       const sub = [r.property, r.assignedTo, spansDays ? fmtDate(r.date) + " – " + fmtDate(r.endDate) : ""].filter(Boolean).join(" · ");
       const firstAssignee = (r.assignedTo || "").split(",")[0]?.trim();
       const color = colorForPerson(firstAssignee) || TAG.calendar;
+      const propColor = colorForPerson(r.property);
       if (!spansDays) {
-        add(r.date, { type: "calendar", label, sub, color, rec: r, editable: true });
+        add(r.date, { type: "calendar", label, sub, color, propColor, rec: r, editable: true });
         return;
       }
       // Multi-day event: show it on every day it spans, not just the start day.
       let d = new Date(r.date + "T00:00:00");
       const endD = new Date(r.endDate + "T00:00:00");
       while (d <= endD) {
-        add(localDateStr(d), { type: "calendar", label, sub, color, rec: r, editable: true });
+        add(localDateStr(d), { type: "calendar", label, sub, color, propColor, rec: r, editable: true });
         d.setDate(d.getDate() + 1);
       }
     });
-    byProp(data.orders).forEach((r) => add(r.date, { type: "orders", label: "PO: " + (r.item || "purchase"), sub: r.status, color: TAG.orders, rec: r, editable: true }));
+    byProp(data.orders).forEach((r) => add(r.date, { type: "orders", label: "PO: " + (r.item || "purchase"), sub: r.status, color: TAG.orders, propColor: colorForPerson(r.property), rec: r, editable: true }));
     byProp(data.health).forEach((r) => {
       const today = localDateStr(new Date());
-      if (r.whpClear && r.whpClear >= today) add(r.whpClear, { type: "health", label: "WHP clear — " + (r.mobName || ""), color: TAG.health, rec: r, editable: false });
-      if (r.esiClear && r.esiClear >= today && r.esiClear !== r.whpClear) add(r.esiClear, { type: "health", label: "ESI clear — " + (r.mobName || ""), color: TAG.health, rec: r, editable: false });
+      if (r.whpClear && r.whpClear >= today) add(r.whpClear, { type: "health", label: "WHP clear — " + (r.mobName || ""), color: TAG.health, propColor: colorForPerson(r.property), rec: r, editable: false });
+      if (r.esiClear && r.esiClear >= today && r.esiClear !== r.whpClear) add(r.esiClear, { type: "health", label: "ESI clear — " + (r.mobName || ""), color: TAG.health, propColor: colorForPerson(r.property), rec: r, editable: false });
     });
     return map;
   }, [data, propFilter]);
@@ -1750,7 +1752,8 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
         {dayItems.map((it, i) => (
           <div className="rain-row" key={i}>
             <span>
-              <span className="cal-dot" style={{ background: it.color, marginRight: 6 }} />
+              {it.propColor && <span className="cal-dot cal-dot-prop" style={{ background: it.propColor, marginRight: 3 }} title="Property" />}
+              <span className="cal-dot" style={{ background: it.color, marginRight: 6 }} title="Type / person" />
               {it.label}
               {it.sub ? " · " + it.sub : ""}
             </span>
@@ -3242,7 +3245,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       case "calendar":
         return {
           title: (r.time ? r.time + " — " : "") + (r.title || "Calendar event"),
-          sub: [r.property, r.assignedTo, r.endDate && r.endDate > r.date ? "until " + fmtDate(r.endDate) : "", r.notes].filter(Boolean).join(" · "),
+          sub: [r.activityType, r.property, r.assignedTo, r.endDate && r.endDate > r.date ? "until " + fmtDate(r.endDate) : "", r.notes].filter(Boolean).join(" · "),
         };
       case "spendRequest": {
         const spendAsset = r.assetId ? (settings.assets || []).find((a) => a.id === r.assetId) : null;
@@ -5827,6 +5830,7 @@ function Style() {
     .cal-day-n { font-weight: 600; }
     .cal-day-dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
     .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .cal-dot-prop { border-radius: 2px; }
 
     .empty { color: #8B887A; font-size: 14.5px; padding: 6px 0; }
     .pdk-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid #F0EEE6; }
