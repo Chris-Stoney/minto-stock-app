@@ -3465,10 +3465,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     return [...new Set(parts.map((p) => map[p]).filter(Boolean))].join("/");
   };
 
-  // Every exact class recorded, per property — not the coarse Home-tab
-  // groups (which fold e.g. "Weaner lambs" and "Ewe lambs" both into "Young
-  // sheep"). Zero-head mobs are excluded since they're not real stock on the
-  // ground; everything else is included regardless of paddock.
+  // Every exact class recorded, per property and paddock — not the coarse
+  // Home-tab groups (which fold e.g. "Weaner lambs" and "Ewe lambs" both
+  // into "Young sheep"). Zero-head mobs are excluded since they're not real
+  // stock on the ground; everything else is included, including anything
+  // sitting unallocated (Inbox / no paddock recorded), shown as blank.
   const exportStockByClassCsv = () => {
     const esc = (v) => {
       const s = String(v ?? "");
@@ -3480,19 +3481,20 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       data.mobs
         .filter((m) => m.property === prop && num(m.head) > 0)
         .forEach((m) => {
-          const key = m.species + "|" + (m.cls || "Unclassed") + "|" + yearForTag(m.tag);
+          const paddock = m.paddock && m.paddock !== INBOX ? m.paddock : "";
+          const key = paddock + "|" + m.species + "|" + (m.cls || "Unclassed") + "|" + yearForTag(m.tag);
           byCls[key] = (byCls[key] || 0) + num(m.head);
         });
       Object.entries(byCls)
         .sort((a, b) => a[0].localeCompare(b[0]))
         .forEach(([key, head]) => {
-          const [species, cls, year] = key.split("|");
-          rows.push({ property: prop, species, cls, year, head });
+          const [paddock, species, cls, year] = key.split("|");
+          rows.push({ property: prop, paddock, species, cls, year, head });
         });
     });
-    const header = ["Property", "Species", "Class", "Year", "Head"];
+    const header = ["Property", "Paddock", "Species", "Class", "Year", "Head"];
     const lines = [header.join(",")];
-    rows.forEach((r) => lines.push([r.property, r.species, r.cls, r.year, r.head].map(esc).join(",")));
+    rows.forEach((r) => lines.push([r.property, r.paddock, r.species, r.cls, r.year, r.head].map(esc).join(",")));
     const csv = lines.join("\r\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -5111,7 +5113,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   Export (JSON)
                 </button>
                 <button className="btn ghost" onClick={exportStockByClassCsv}>
-                  Stock by class (CSV)
+                  Stock by class & paddock (CSV)
                 </button>
               </div>
               {exportText && (
