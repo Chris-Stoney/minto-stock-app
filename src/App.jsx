@@ -3471,6 +3471,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // into "Young sheep"). Zero-head mobs are excluded since they're not real
   // stock on the ground; everything else is included, including anything
   // sitting unallocated (Inbox / no paddock recorded), shown as blank.
+  // Tag colour is shown alongside the derived Year (see yearForTag above)
+  // rather than instead of it, so an unmapped or M/A tag colour still shows
+  // up distinctly instead of being silently folded into a blank Year.
   const exportStockByClassCsv = () => {
     const esc = (v) => {
       const s = String(v ?? "");
@@ -3483,19 +3486,19 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         .filter((m) => m.property === prop && num(m.head) > 0)
         .forEach((m) => {
           const paddock = m.paddock && m.paddock !== INBOX ? m.paddock : "";
-          const key = paddock + "|" + m.species + "|" + (m.cls || "Unclassed") + "|" + yearForTag(m.tag);
+          const key = paddock + "|" + m.species + "|" + (m.cls || "Unclassed") + "|" + (m.tag || "") + "|" + yearForTag(m.tag);
           byCls[key] = (byCls[key] || 0) + num(m.head);
         });
       Object.entries(byCls)
         .sort((a, b) => a[0].localeCompare(b[0]))
         .forEach(([key, head]) => {
-          const [paddock, species, cls, year] = key.split("|");
-          rows.push({ property: prop, paddock, species, cls, year, head });
+          const [paddock, species, cls, tag, year] = key.split("|");
+          rows.push({ property: prop, paddock, species, cls, tag, year, head });
         });
     });
-    const header = ["Property", "Paddock", "Species", "Class", "Year", "Head"];
+    const header = ["Property", "Paddock", "Species", "Class", "Tag colour", "Year", "Head"];
     const lines = [header.join(",")];
-    rows.forEach((r) => lines.push([r.property, r.paddock, r.species, r.cls, r.year, r.head].map(esc).join(",")));
+    rows.forEach((r) => lines.push([r.property, r.paddock, r.species, r.cls, r.tag, r.year, r.head].map(esc).join(",")));
     const csv = lines.join("\r\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
