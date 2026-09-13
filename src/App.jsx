@@ -2276,6 +2276,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         pics: st?.pics || {},
         breeds: st?.breeds || DEFAULT_BREEDS,
         tagColours: st?.tagColours || DEFAULT_TAGS,
+        tagYears: st?.tagYears || {},
         statuses: st?.statuses || DEFAULT_STATUSES,
         approvers: st?.approvers || [],
         team: st?.team || DEFAULT_TEAM,
