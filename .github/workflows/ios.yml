@@ -1,0 +1,88 @@
+name: iOS TestFlight
+
+# Builds a signed release and uploads it to TestFlight. Manual trigger only
+# (unlike the Android APK build) — every run does a full signed build and
+# ships a new TestFlight build number, and macOS runners cost several times
+# more CI minutes than Linux ones, so this shouldn't fire on every push.
+#
+# Needs Apple Developer Program enrolment done first (active account), plus
+# these repo secrets:
+#   MATCH_GIT_URL                   — URL of the private repo holding
+#                                      fastlane match's encrypted certs
+#   MATCH_GIT_BASIC_AUTHORIZATION   — base64 of "username:personal-access-token"
+#                                      for that repo (PAT needs repo scope)
+#   MATCH_PASSWORD                  — passphrase you chose to encrypt the certs
+#   APP_STORE_CONNECT_API_KEY_ID
+#   APP_STORE_CONNECT_API_ISSUER_ID
+#   APP_STORE_CONNECT_API_KEY_CONTENT — base64 of the downloaded .p8 file
+#   APPLE_TEAM_ID                   — from Apple Developer -> Membership
+#
+# Also needs, done once in the Apple/App Store Connect web portals (nothing
+# here can do this part): the app identifier au.com.mintopastoral.farmrecords
+# registered as an App ID, and an app record created for it in App Store
+# Connect so there's somewhere for a TestFlight build to land.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  beta:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check required secrets are set
+        run: |
+          missing=""
+          for v in MATCH_GIT_URL MATCH_GIT_BASIC_AUTHORIZATION MATCH_PASSWORD APP_STORE_CONNECT_API_KEY_ID APP_STORE_CONNECT_API_ISSUER_ID APP_STORE_CONNECT_API_KEY_CONTENT APPLE_TEAM_ID; do
+            eval "val=\${$v}"
+            if [ -z "$val" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing repo secret(s):$missing"
+            echo "Add them under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+        env:
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Add iOS platform
+        run: npx cap add ios
+
+      - name: Sync Capacitor
+        run: npx cap sync ios
+
+      - name: Install fastlane
+        run: gem install fastlane -N
+
+      - name: Copy fastlane config into the iOS project
+        run: |
+          mkdir -p ios/fastlane
+          cp ios-fastlane/Fastfile ios-fastlane/Appfile ios/fastlane/
+
+      - name: Build and upload to TestFlight
+        working-directory: ios
+        env:
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: fastlane beta

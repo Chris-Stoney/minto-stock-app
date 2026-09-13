@@ -1,0 +1,48 @@
+# Builds the app and ships it straight to TestFlight. Lives outside ios/
+# (at the repo root) because ios/ itself is never committed — the CI
+# workflow generates it fresh each run with `npx cap add ios`, the same way
+# the Android build regenerates android/. This file gets copied into
+# ios/fastlane/ right after that, then run from inside ios/.
+default_platform(:ios)
+
+platform :ios do
+  desc "Build a signed release and upload it to TestFlight"
+  lane :beta do
+    app_store_connect_api_key(
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_API_ISSUER_ID"],
+      key_content: ENV["APP_STORE_CONNECT_API_KEY_CONTENT"],
+      is_key_content_base64: true,
+      in_house: false
+    )
+
+    # Fetches the signing certificate + provisioning profile from the
+    # private certs repo (MATCH_GIT_URL), creating them via the App Store
+    # Connect API the first time this ever runs. readonly stays false since
+    # a fresh Capacitor-generated ios/ project has no profile associated
+    # with it yet on every run — match reuses the existing cert either way,
+    # it just re-confirms the profile matches.
+    match(
+      type: "appstore",
+      readonly: false
+    )
+
+    increment_build_number(
+      build_number: ENV["GITHUB_RUN_NUMBER"],
+      xcodeproj: "App.xcodeproj"
+    )
+
+    build_app(
+      workspace: "App.xcworkspace",
+      scheme: "App",
+      export_method: "app-store",
+      export_options: {
+        provisioningProfiles: {
+          "au.com.mintopastoral.farmrecords" => "match AppStore au.com.mintopastoral.farmrecords"
+        }
+      }
+    )
+
+    upload_to_testflight(skip_waiting_for_build_processing: true)
+  end
+end

@@ -35,12 +35,23 @@ that loads the live site (`capacitor.config.json` → `server.url`). So:
 | Step | Needs | Status |
 |------|-------|--------|
 | Native-ready config (Capacitor) | — | ✅ done |
-| Android test build (APK) in the cloud | build service | ⏳ next |
-| Install APK on an Android phone to try | — | ⏳ |
-| Apple Developer enrolment | $99/yr + D-U-N-S | 🔲 you |
-| Google Play enrolment | $25 | 🔲 you |
-| iOS build + TestFlight invite | Apple account + cloud Mac build | 🔲 |
+| Android test build (APK) in the cloud | build service | ✅ done — auto-builds on every push, download from the Actions tab |
+| Install APK on an Android phone to try | — | ✅ done |
+| Android signed release (.aab) for Play Store | signing key generated once + 4 secrets | 🔲 run "Generate Android signing key" once, add the secrets |
+| Google Play enrolment | $25 | 🔲 you — status unconfirmed, check with Chris |
+| Apple Developer enrolment | $99/yr + D-U-N-S | ✅ done — active account |
+| iOS build + TestFlight pipeline | fastlane match + App Store Connect API key | ✅ workflow built (`ios.yml`) — needs the portal setup + secrets below before it can run |
 | App icon + splash screen | a logo image | 🔲 |
+
+### iOS setup still needed (portal steps only you/Chris can do, then secrets)
+
+1. Apple Developer portal → Certificates, IDs & Profiles → Identifiers → register App ID `au.com.mintopastoral.farmrecords`, if not already there.
+2. App Store Connect → My Apps → + → New App, same bundle ID, so there's somewhere for a TestFlight build to land.
+3. Create a new **private** GitHub repo (empty is fine) to hold fastlane match's encrypted certificates.
+4. App Store Connect → Users and Access → Integrations → Keys → generate an API key (App Manager role is enough) — download the `.p8` once, note the Key ID and Issuer ID.
+5. A GitHub personal access token (classic, `repo` scope) so match can read/write the certs repo from CI.
+6. Add 7 repo secrets on **this** repo (minto-stock-app) — see the comment block at the top of `.github/workflows/ios.yml` for the exact names.
+7. Run **iOS TestFlight** from the Actions tab (manual trigger only, not on every push — it's a full signed build each time).
 
 ## Important: finish the security lockdown first
 

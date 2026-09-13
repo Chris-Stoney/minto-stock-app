@@ -1,0 +1,2 @@
+app_identifier("au.com.mintopastoral.farmrecords")
+team_id(ENV["APPLE_TEAM_ID"])
