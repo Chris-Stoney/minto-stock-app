@@ -16,6 +16,7 @@ const KEYS = {
   trucking: "mp2:trucking",
   maint: "mp2:maint",
   pasture: "mp2:pasture",
+  paddockTreatment: "mp2:paddockTreatment",
   adjust: "mp2:adjust",
   orders: "mp2:orders",
   musters: "mp2:musters",
@@ -578,6 +579,7 @@ const TAG = {
   trucking: "#7D4E9E",
   maint: "#DA7B26",
   pasture: "#6BA542",
+  paddockTreatment: "#B8860B",
   adjust: "#94651E",
   orders: "#2E7F8F",
   musters: "#4E5D9E",
@@ -979,6 +981,23 @@ const RECORD_TYPES = {
       { key: "sown", label: "Year sown", type: "number", optional: true },
       { key: "pastureType", label: "Pasture / crop type", type: "text", optional: true },
       { key: "foo", label: "FOO (kg DM/ha)", type: "number", optional: true },
+      { key: "notes", label: "Notes", type: "textarea", optional: true },
+    ],
+  },
+  paddockTreatment: {
+    label: "Paddock treatments",
+    single: "Paddock treatment",
+    tag: TAG.paddockTreatment,
+    fields: [
+      { key: "date", label: "Date", type: "date" },
+      { key: "property", label: "Property", type: "property" },
+      { key: "paddock", label: "Paddock", type: "paddock" },
+      { key: "treatmentType", label: "Type", type: "select", options: ["Fertilizer", "Herbicide", "Pesticide", "Fungicide", "Lime", "Other"] },
+      { key: "product", label: "Product", type: "text" },
+      { key: "rate", label: "Rate (e.g. 2 L/ha, 100 kg/ha)", type: "text", optional: true },
+      { key: "whp", label: "Grazing withholding (days)", type: "number", optional: true },
+      { key: "appliedBy", label: "Applied by", type: "team", optional: true },
+      { key: "cost", label: "Cost ($)", type: "number", optional: true },
       { key: "notes", label: "Notes", type: "textarea", optional: true },
     ],
   },
@@ -1811,6 +1830,18 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
       if (r.whpClear && r.whpClear >= today) add(r.whpClear, { type: "health", label: "WHP clear — " + (r.mobName || ""), color: TAG.health, propColor: colorForPerson(r.property), rec: r, editable: false });
       if (r.esiClear && r.esiClear >= today && r.esiClear !== r.whpClear) add(r.esiClear, { type: "health", label: "ESI clear — " + (r.mobName || ""), color: TAG.health, propColor: colorForPerson(r.property), rec: r, editable: false });
     });
+    byProp(data.paddockTreatment).forEach((r) => {
+      const today = localDateStr(new Date());
+      if (r.whpClear && r.whpClear >= today)
+        add(r.whpClear, {
+          type: "paddockTreatment",
+          label: "Grazing clear — " + (r.paddock || ""),
+          color: TAG.paddockTreatment,
+          propColor: colorForPerson(r.property),
+          rec: r,
+          editable: false,
+        });
+    });
     return map;
   }, [data, propFilter]);
 
@@ -2259,6 +2290,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     trucking: [],
     maint: [],
     pasture: [],
+    paddockTreatment: [],
     adjust: [],
     orders: [],
     musters: [],
@@ -2369,6 +2401,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       const fromBaseline = (cur, k) => (cur && cur.length ? cur : JSON.parse(JSON.stringify(BASELINE[k] || [])));
       const auditData = raced === "__SLOW__" ? [] : await loadKey(KEYS.audit, []);
       const dismissedLostData = raced === "__SLOW__" ? [] : await loadKey(KEYS.dismissedLost, []);
+      // Loaded the same simple way as audit/dismissedLost, not folded into
+      // the big positional Promise.all above — it's a brand new type with
+      // no 17 July baseline to fall back to, and adding a 20th position to
+      // that array (and its two matching destructuring lists) by hand is
+      // exactly the kind of place a silent off-by-one bug hides.
+      const paddockTreatmentData = raced === "__SLOW__" ? [] : await loadKey(KEYS.paddockTreatment, []);
       setData({
         mobs: fromBaseline(mobs, "mobs"),
         moves: fromBaseline(moves, "moves"),
@@ -2391,6 +2429,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         spendRequest: fromBaseline(spendRequest, "spendRequest"),
         audit: auditData,
         dismissedLost: dismissedLostData,
+        paddockTreatment: paddockTreatmentData,
       });
       setSettings({
         properties: st?.properties || DEFAULT_PROPERTIES,
@@ -2431,7 +2470,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   useEffect(() => {
     if (!loaded) return;
     const keys = [
-      "mobs", "moves", "health", "rain", "trucking", "maint", "pasture", "adjust",
+      "mobs", "moves", "health", "rain", "trucking", "maint", "pasture", "paddockTreatment", "adjust",
       "orders", "musters", "menu", "marking", "weaning", "pregtest", "pdkuse",
       "shearing", "woolsale", "calendar", "spendRequest", "audit", "dismissedLost",
     ];
@@ -2750,6 +2789,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     data.pasture
       .filter((r) => r.property === prop && r.paddock === pdk)
       .forEach((r) => items.push({ d: r.date, t: "Pasture: " + r.condition + (r.pastureType ? " · " + r.pastureType : "") + (r.sown ? " · sown " + r.sown : "") + (r.foo ? " · " + r.foo + " kg DM/ha" : ""), c: r.createdAt }));
+    data.paddockTreatment
+      .filter((r) => r.property === prop && r.paddock === pdk)
+      .forEach((r) =>
+        items.push({
+          d: r.date,
+          t: r.treatmentType + (r.product ? ": " + r.product : "") + (r.rate ? " · " + r.rate : "") + (r.whpClear ? " · clear " + fmtDate(r.whpClear) : ""),
+          c: r.createdAt,
+        })
+      );
     return items.sort((a, b) => (b.c || 0) - (a.c || 0)).slice(0, 12);
   };
   const latestFoo = (prop, pdk) => {
@@ -2904,6 +2952,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         d.setDate(d.getDate() + Math.round(num(rec.esi)));
         rec.esiClear = d.toISOString().slice(0, 10);
       }
+    }
+    if (typeKey === "paddockTreatment" && rec.whp) {
+      const d = new Date(rec.date);
+      d.setDate(d.getDate() + Math.round(num(rec.whp)));
+      rec.whpClear = d.toISOString().slice(0, 10);
     }
     if (typeKey === "trucking") {
       const head = Math.round(num(rec.head));
@@ -3418,7 +3471,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const activity = useMemo(() => {
     const cutoff = Date.now() - 3 * 86400000; // last 3 days, then it expires
     const all = [];
-    ["moves", "health", "rain", "trucking", "maint", "pasture", "adjust", "orders", "musters", "menu", "calendar", "spendRequest", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
+    ["moves", "health", "rain", "trucking", "maint", "pasture", "paddockTreatment", "adjust", "orders", "musters", "menu", "calendar", "spendRequest", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
       byProp(data[k]).forEach((r) => {
         if ((r.createdAt || 0) >= cutoff) all.push({ ...r, _type: k });
       })
@@ -3537,6 +3590,19 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           sub: `${r.property}${r.pastureType ? " · " + r.pastureType : ""}${r.sown ? " · sown " + r.sown : ""}${
             r.foo ? " · " + r.foo + " kg DM/ha" : ""
           }`,
+        };
+      case "paddockTreatment":
+        return {
+          title: `${r.paddock} — ${r.treatmentType}${r.product ? ": " + r.product : ""}`,
+          sub: [
+            r.property,
+            r.rate,
+            r.whpClear ? (r.whpClear >= todayStr() ? `Withheld until ${fmtDate(r.whpClear)}` : `Clear since ${fmtDate(r.whpClear)}`) : "",
+            r.appliedBy,
+            r.cost ? "$" + num(r.cost).toLocaleString() : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
         };
       default:
         return { title: "", sub: "" };
@@ -5959,6 +6025,7 @@ function QuickAdd({ onPick }) {
     ["menu", "Menu"],
     ["orders", "Purchase order"],
     ["pasture", "Pasture"],
+    ["paddockTreatment", "Paddock treatment"],
     ["mob", "New mob"],
   ];
   return (
