@@ -457,7 +457,115 @@ const CLASS_DSE = {
   Bulls: 8,
   Calves: 5,
 };
-const dseFor = (m) => (CLASS_DSE[m.cls] !== undefined ? CLASS_DSE[m.cls] : m.species === "Cattle" ? 8 : 1.5);
+// --- New classification scheme (Species -> Age -> Breed -> Class -> Status
+// -> Timing -> Other), from the Sept 2026 Classification Flow review. Kept
+// separate from settings.classes/settings.statuses (which still drive the
+// normal New/Edit mob form) until reclassification is far enough along to
+// switch those over — a mob not yet reclassified would otherwise show a
+// Class/Status the new dropdown doesn't recognise. Age itself isn't part of
+// this — it's already the existing tag colour field, unchanged by this.
+const NEW_BREEDS = {
+  Cattle: ["Angus", "F1", "Hereford", "Other", "Stud Angus"],
+  Sheep: ["Dorper", "Dorset", "Merino", "Stud Ultra White", "Ultra White", "X-bred"],
+};
+const NEW_CLASSES = {
+  Cattle: ["Bull", "Calf", "Cow", "Heifer", "M/S", "Steer", "Stag"],
+  Sheep: ["Ewe", "Ewe lamb", "M/S", "Ram", "Ram lamb", "Wether lamb"],
+};
+const NEW_STATUSES = {
+  Cattle: ["CAF", "PTE", "PTIC", "Store", "Trading", "Weaner"],
+  Sheep: ["Backgrounding", "Dry", "LAF", "SIL", "Trading", "Wet"],
+};
+const NEW_TIMINGS = {
+  Cattle: ["PTIC-Early", "PTIC-Late"],
+  Sheep: ["SIL-Early", "SIL-Late", "SIL-Late Late"],
+};
+const NEW_OTHER = ["Multiples", "Singles", "Twins"]; // sheep only
+
+// DSE per new Class+Status, confirmed with the user 14 Sep 2026 — carried
+// over from the closest match in the old CLASS_DSE table above. Breed
+// (stud vs commercial) deliberately isn't a factor — same class, same DSE.
+const NEW_CLASS_DSE = {
+  Cattle: {
+    "Bull|": 8, "Calf|": 5, "Cow|": 10, "Cow|CAF": 10, "Cow|PTE": 10, "Cow|Store": 10,
+    "Heifer|": 8, "Heifer|PTIC": 8, "Heifer|Store": 8,
+    "Steer|": 8, "Steer|Store": 8, "Stag|": 8, "M/S|Weaner": 6,
+  },
+  Sheep: {
+    "Ewe|": 3, "Ewe|LAF": 3, "Ewe|Dry": 1, "Ewe|Wet": 3,
+    "Ewe lamb|": 1.2, "Wether lamb|": 1.2, "Ram|": 2, "Ram lamb|": 1.2, "M/S|": 1.2,
+  },
+};
+
+// Every distinct old (species|breed|cls|status) combination worked out with
+// the user during the classification review, mapped to its proposed new
+// values — pre-fills the reclassify screen so it's a review-and-confirm,
+// not a blank form per mob. Tag/Age isn't part of the key: it doesn't
+// change what Class/Status/Breed a mob resolves to. Anything not in this
+// table (a combination that didn't exist when this was built) just starts
+// blank on the reclassify screen instead of guessing.
+const RECLASSIFY_MAP = {
+  "Cattle||Cows & calves|CAF": { breed: "", cls: "Cow", status: "CAF", timing: "", other: "" },
+  "Cattle||Cows|MA": { breed: "", cls: "Cow", status: "", timing: "", other: "" },
+  "Cattle||Cows|PTE": { breed: "", cls: "Cow", status: "PTE", timing: "", other: "" },
+  "Cattle||Heifers|": { breed: "", cls: "Heifer", status: "", timing: "", other: "" },
+  "Cattle||Heifers|PTIC": { breed: "", cls: "Heifer", status: "PTIC", timing: "", other: "" },
+  "Cattle||Steers|": { breed: "", cls: "Steer", status: "", timing: "", other: "" },
+  "Cattle||Store cows|Store": { breed: "", cls: "Cow", status: "Store", timing: "", other: "" },
+  "Cattle||Stud Angus cows|": { breed: "Stud Angus", cls: "Cow", status: "", timing: "", other: "" },
+  "Cattle||Stud Angus heifers|": { breed: "Stud Angus", cls: "Heifer", status: "", timing: "", other: "" },
+  "Cattle|Angus|Bulls|": { breed: "Angus", cls: "Bull", status: "", timing: "", other: "" },
+  "Cattle|Angus|Bulls|Bulls": { breed: "Angus", cls: "Bull", status: "", timing: "", other: "" },
+  "Cattle|Angus|Bulls|Stud": { breed: "Stud Angus", cls: "Bull", status: "", timing: "", other: "" },
+  "Cattle|Angus|Cows|": { breed: "Angus", cls: "Cow", status: "", timing: "", other: "" },
+  "Cattle|Angus|Heifers|": { breed: "Angus", cls: "Heifer", status: "", timing: "", other: "" },
+  "Cattle|Angus|Heifers|Heifers": { breed: "Angus", cls: "Heifer", status: "", timing: "", other: "" },
+  "Cattle|Angus|Steers|": { breed: "Angus", cls: "Steer", status: "", timing: "", other: "" },
+  "Cattle|Angus|Steers|Stag": { breed: "Angus", cls: "Stag", status: "", timing: "", other: "" },
+  "Cattle|Angus|Weaner M/S|MS": { breed: "Angus", cls: "M/S", status: "Weaner", timing: "", other: "" },
+  "Cattle|F1|Calves|": { breed: "F1", cls: "Calf", status: "", timing: "", other: "" },
+  "Cattle|F1|Cows & calves|": { breed: "F1", cls: "Cow", status: "CAF", timing: "", other: "" },
+  "Cattle|F1|Cows|": { breed: "F1", cls: "Cow", status: "", timing: "", other: "" },
+  "Cattle|F1|Heifers|Store": { breed: "F1", cls: "Heifer", status: "Store", timing: "", other: "" },
+  "Cattle|F1|Steers|Store": { breed: "F1", cls: "Steer", status: "Store", timing: "", other: "" },
+  "Sheep||Breeding ewes|Early": { breed: "", cls: "Ewe", status: "", timing: "SIL-Early", other: "" },
+  "Sheep||Breeding ewes|Late": { breed: "", cls: "Ewe", status: "", timing: "SIL-Late", other: "" },
+  "Sheep||Breeding ewes|MA": { breed: "", cls: "Ewe", status: "", timing: "", other: "" },
+  "Sheep||Ewe lambs|": { breed: "", cls: "Ewe lamb", status: "", timing: "", other: "" },
+  "Sheep||Ewes & lambs|": { breed: "", cls: "Ewe", status: "LAF", timing: "", other: "" },
+  "Sheep||Ewes & lambs|Late": { breed: "", cls: "Ewe", status: "LAF", timing: "SIL-Late", other: "" },
+  "Sheep||Stud ultra ewe lambs|": { breed: "Stud Ultra White", cls: "Ewe lamb", status: "", timing: "", other: "" },
+  "Sheep||Stud ultra ewes|": { breed: "Stud Ultra White", cls: "Ewe", status: "", timing: "", other: "" },
+  "Sheep||Wether lambs|": { breed: "", cls: "Wether lamb", status: "", timing: "", other: "" },
+  "Sheep|Dorper|Ewe lambs|": { breed: "Dorper", cls: "Ewe lamb", status: "", timing: "", other: "" },
+  "Sheep|Dorper|Wether lambs|": { breed: "Dorper", cls: "Wether lamb", status: "", timing: "", other: "" },
+  "Sheep|Dorset|Lambs|": { breed: "Dorset", cls: "M/S", status: "", timing: "", other: "" },
+  "Sheep|Dorset|Lambs|MS": { breed: "Dorset", cls: "M/S", status: "", timing: "", other: "" },
+  "Sheep|Dorset|Lambs|Rams": { breed: "Dorset", cls: "Ram lamb", status: "", timing: "", other: "" },
+  "Sheep|Merino|Breeding ewes|": { breed: "Merino", cls: "Ewe", status: "", timing: "", other: "" },
+  "Sheep|Merino|Breeding ewes|Late": { breed: "Merino", cls: "Ewe", status: "", timing: "SIL-Late", other: "" },
+  "Sheep|Merino|Dry sheep|Dry": { breed: "Merino", cls: "Ewe", status: "Dry", timing: "", other: "" },
+  "Sheep|Merino|Dry sheep|Empty": { breed: "Merino", cls: "Ewe", status: "Dry", timing: "", other: "" },
+  "Sheep|Merino|Ewe lambs|Ewes": { breed: "Merino", cls: "Ewe lamb", status: "", timing: "", other: "" },
+  "Sheep|Merino|Ewes & lambs|": { breed: "Merino", cls: "Ewe", status: "LAF", timing: "", other: "" },
+  "Sheep|Merino|Ewes & lambs|Early": { breed: "Merino", cls: "Ewe", status: "LAF", timing: "SIL-Early", other: "" },
+  "Sheep|Merino|Ewes & lambs|Wet": { breed: "Merino", cls: "Ewe", status: "Wet", timing: "", other: "" },
+  "Sheep|Merino|Ewes – twins|Early": { breed: "Merino", cls: "Ewe", status: "", timing: "SIL-Early", other: "Twins" },
+  "Sheep|Merino|Lambs|": { breed: "Merino", cls: "M/S", status: "", timing: "", other: "" },
+  "Sheep|Merino|Lambs|Rams": { breed: "Merino", cls: "Ram lamb", status: "", timing: "", other: "" },
+  "Sheep|Ultra|Rams|Rams": { breed: "Stud Ultra White", cls: "Ram", status: "", timing: "", other: "" },
+  "Sheep|Ultra|Stud ultra ewe lambs|": { breed: "Stud Ultra White", cls: "Ewe lamb", status: "", timing: "", other: "" },
+  "Sheep|Ultra|Stud ultra ram lambs|": { breed: "Stud Ultra White", cls: "Ram lamb", status: "", timing: "", other: "" },
+};
+
+const dseFor = (m) => {
+  if (m.reclassified) {
+    const key = m.cls + "|" + (m.status || "");
+    const dse = (NEW_CLASS_DSE[m.species] || {})[key];
+    if (dse !== undefined) return dse;
+  }
+  return CLASS_DSE[m.cls] !== undefined ? CLASS_DSE[m.cls] : m.species === "Cattle" ? 8 : 1.5;
+};
 
 
 
@@ -2171,6 +2279,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const [recordView, setRecordView] = useState(null); // record type key
   const [editMob, setEditMob] = useState(null);
   const [viewMob, setViewMob] = useState(null);
+  const [reclassifyOpen, setReclassifyOpen] = useState(false);
+  const [reclassifyDrafts, setReclassifyDrafts] = useState({});
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState(null); // { message, onYes }
   const [commentary, setCommentary] = useState({ prop: "", text: "", loading: false });
@@ -2505,6 +2615,77 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       });
     }
     flash("Renamed to Green tag");
+  };
+
+  // Reclassify screen: groups every not-yet-reclassified mob with head by
+  // its old (species, breed, class, status) combination — tag/Age doesn't
+  // change and isn't part of the grouping, since it's already correct and
+  // untouched by this. Pre-fills each group's proposed new values from
+  // RECLASSIFY_MAP where a combination was already worked through; anything
+  // not in that table starts blank rather than guessing.
+  const comboKey = (m) => [m.species, m.breed || "", m.cls || "", m.status || ""].join("|");
+  const reclassifyGroups = useMemo(() => {
+    const groups = {};
+    (data.mobs || [])
+      .filter((m) => !m.reclassified && num(m.head) > 0)
+      .forEach((m) => {
+        const key = comboKey(m);
+        if (!groups[key]) {
+          groups[key] = {
+            key,
+            species: m.species,
+            breed: m.breed || "",
+            cls: m.cls || "",
+            status: m.status || "",
+            tags: new Set(),
+            mobs: [],
+            head: 0,
+          };
+        }
+        groups[key].tags.add(m.tag || "—");
+        groups[key].mobs.push(m);
+        groups[key].head += num(m.head);
+      });
+    return Object.values(groups)
+      .map((g) => ({ ...g, tags: [...g.tags] }))
+      .sort((a, b) => b.head - a.head);
+  }, [data.mobs]);
+  const reclassifyTotalMobs = (data.mobs || []).filter((m) => num(m.head) > 0).length;
+  const reclassifyDoneMobs = reclassifyTotalMobs - reclassifyGroups.reduce((a, g) => a + g.mobs.length, 0);
+  const draftFor = (g) => reclassifyDrafts[g.key] || RECLASSIFY_MAP[g.key] || { breed: g.breed, cls: "", status: "", timing: "", other: "" };
+  const setDraftField = (g, field, value) => {
+    setReclassifyDrafts((d) => ({ ...d, [g.key]: { ...draftFor(g), [field]: value } }));
+  };
+  const saveReclassifyGroup = (g) => {
+    const draft = draftFor(g);
+    if (!draft.cls) return;
+    const ids = new Set(g.mobs.map((m) => m.id));
+    setAndSave(
+      "mobs",
+      data.mobs.map((m) =>
+        ids.has(m.id)
+          ? { ...m, breed: draft.breed || "", cls: draft.cls, status: draft.status || "", timing: draft.timing || "", other: draft.other || "", reclassified: true }
+          : m
+      )
+    );
+    g.mobs.forEach((m) => {
+      try {
+        logAudit(
+          "Edit mob",
+          composeName(m) +
+            " — reclassified: " +
+            [draft.breed, draft.cls, draft.status, draft.timing, draft.other].filter(Boolean).join(" · "),
+          "mobs",
+          m.id
+        );
+      } catch {}
+    });
+    setReclassifyDrafts((d) => {
+      const next = { ...d };
+      delete next[g.key];
+      return next;
+    });
+    flash(`Reclassified ${g.mobs.length} mob${g.mobs.length === 1 ? "" : "s"}`);
   };
 
   const properties = settings.properties;
@@ -3698,6 +3879,110 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               Close
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const reclassifyOverlay = reclassifyOpen && (
+    <div className="overlay" onClick={(e) => e.target === e.currentTarget && setReclassifyOpen(false)}>
+      <div className="sheet">
+        <div className="card form-card">
+          <div className="form-head">
+            <Chip color={TAG.mobs}>Reclassify stock</Chip>
+            <button className="btn ghost sm" onClick={() => setReclassifyOpen(false)}>
+              Close
+            </button>
+          </div>
+          <p className="note">
+            {reclassifyDoneMobs} of {reclassifyTotalMobs} mobs reclassified · {reclassifyGroups.length} group
+            {reclassifyGroups.length === 1 ? "" : "s"} left, grouped by everything that currently matches. Review
+            each group's proposed Breed/Class/Status/Timing/Other, adjust if needed, then save — that group's mobs
+            keep their current classification untouched until you do. Age (tag colour) isn't shown here since it
+            doesn't change.
+          </p>
+          {reclassifyGroups.length === 0 && <div className="empty">Every mob with head has been reclassified.</div>}
+          {reclassifyGroups.map((g) => {
+            const draft = draftFor(g);
+            const breeds = NEW_BREEDS[g.species] || [];
+            const classes = NEW_CLASSES[g.species] || [];
+            const statuses = NEW_STATUSES[g.species] || [];
+            const timings = NEW_TIMINGS[g.species] || [];
+            return (
+              <section className="card" key={g.key} style={{ margin: "0 0 12px" }}>
+                <div className="card-title">
+                  {g.species} · {g.breed || <span className="opt">no breed</span>} · {g.cls || <span className="opt">no class</span>}
+                  {g.status ? " · " + g.status : ""}
+                  <span className="card-title-n">{g.head.toLocaleString()} hd</span>
+                </div>
+                <p className="note" style={{ margin: "0 0 10px" }}>
+                  {g.mobs.length} mob{g.mobs.length === 1 ? "" : "s"} · tag: {g.tags.join(", ")}
+                </p>
+                <div className="f-grid2">
+                  <div className="f-row">
+                    <label className="f-label">Breed</label>
+                    <select value={draft.breed || ""} onChange={(e) => setDraftField(g, "breed", e.target.value)}>
+                      <option value="">—</option>
+                      {breeds.map((b) => (
+                        <option key={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="f-row">
+                    <label className="f-label">Class</label>
+                    <select value={draft.cls || ""} onChange={(e) => setDraftField(g, "cls", e.target.value)}>
+                      <option value="">Select…</option>
+                      {classes.map((c) => (
+                        <option key={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="f-grid2">
+                  <div className="f-row">
+                    <label className="f-label">
+                      Status <span className="opt">optional</span>
+                    </label>
+                    <select value={draft.status || ""} onChange={(e) => setDraftField(g, "status", e.target.value)}>
+                      <option value="">—</option>
+                      {statuses.map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="f-row">
+                    <label className="f-label">
+                      Timing <span className="opt">optional</span>
+                    </label>
+                    <select value={draft.timing || ""} onChange={(e) => setDraftField(g, "timing", e.target.value)}>
+                      <option value="">—</option>
+                      {timings.map((t) => (
+                        <option key={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {g.species === "Sheep" && (
+                  <div className="f-row">
+                    <label className="f-label">
+                      Other <span className="opt">optional</span>
+                    </label>
+                    <select value={draft.other || ""} onChange={(e) => setDraftField(g, "other", e.target.value)}>
+                      <option value="">—</option>
+                      {NEW_OTHER.map((o) => (
+                        <option key={o}>{o}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="btn-row" style={{ marginTop: 10 }}>
+                  <button className="btn primary sm" disabled={!draft.cls} onClick={() => saveReclassifyGroup(g)}>
+                    Save {g.mobs.length} mob{g.mobs.length === 1 ? "" : "s"}
+                  </button>
+                </div>
+              </section>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -5169,6 +5454,20 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 </button>
               </section>
             )}
+            {reclassifyGroups.length > 0 && (
+              <section className="card">
+                <div className="card-title">Reclassify stock</div>
+                <p className="note">
+                  New Species → Age → Breed → Class → Status → Timing → Other scheme from the Sept 2026
+                  classification review. {reclassifyDoneMobs} of {reclassifyTotalMobs} mobs done so far —
+                  go group by group, review the proposed values, adjust, save. Nothing changes until you save
+                  that group.
+                </p>
+                <button className="btn primary" onClick={() => setReclassifyOpen(true)}>
+                  Open ({reclassifyGroups.length} group{reclassifyGroups.length === 1 ? "" : "s"} left)
+                </button>
+              </section>
+            )}
             <section className="card">
               <div className="card-title">Data</div>
               <p className="note">
@@ -5257,6 +5556,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 
       {formOverlay}
       {mobDetailOverlay}
+      {reclassifyOverlay}
       {confirm && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && setConfirm(null)}>
           <div className="confirm-box">
