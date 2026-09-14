@@ -40,7 +40,7 @@ const DEFAULT_TAGS = [
   "Black tag",
   "White tag",
   "Orange tag",
-  "Light green tag",
+  "Green tag",
   "Purple tag",
   "Yellow tag",
   "Red tag",
@@ -73,9 +73,15 @@ const DEFAULT_STATUSES = {
 
 // Tag colour = birth year (Minto cycle, same for sheep and cattle):
 // orange = 2026 drop, white = 2025, and so on back. Blue = sky blue = 2023.
+// The cycle repeats every CYCLE_YEARS years — Green meant 2019 and means it
+// again in 2027, Purple meant 2020 and 2028, and so on. These defaults are
+// always the *most recent* occurrence; settings.tagYears (Setup > Tag colour
+// years) can override a colour to the older occurrence for stock old enough
+// that the colour's already cycled back around once (see dropLabel below).
+const CYCLE_YEARS = 8;
 const TAG_YEAR = {
   "Blue tag": 2023,
-  "Light green tag": 2019,
+  "Green tag": 2019,
   "Purple tag": 2020,
   "Yellow tag": 2021,
   "Red tag": 2022,
@@ -304,11 +310,17 @@ const currentYearTag = () => {
   const hit = Object.entries(TAG_YEAR).find(([t, yr]) => yr === y && t !== "Blue tag");
   return hit ? hit[0] : "";
 };
-const dropLabel = (tag) => {
+// tagYears (from settings.tagYears, Setup > Tag colour years) overrides the
+// TAG_YEAR default per colour — the escape hatch for stock old enough that a
+// colour has already cycled back to an earlier occurrence (e.g. the actual
+// 2019 Green-tag bulls, once the cycle rolls back around to a 2027 Green
+// drop and the default needs to mean the newer year instead).
+const dropLabel = (tag, tagYears) => {
   if (!tag) return "";
   if (tag === "M/A") return "mixed age";
+  const map = { ...TAG_YEAR, ...(tagYears || {}) };
   const parts = tag.split(" + ").map((p) => (p.endsWith(" tag") ? p : p + " tag"));
-  const yrs = parts.map((p) => TAG_YEAR[p]).filter(Boolean);
+  const yrs = parts.map((p) => map[p]).filter(Boolean);
   if (!yrs.length) return "";
   return yrs.map((y) => "’" + String(y).slice(2)).join("/") + " drop";
 };
@@ -2455,6 +2467,46 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     flash("Corrected — head set to 0");
   };
 
+  // ONE-TIME: "Light green tag" was never a real colour in the classification
+  // scheme — it only existed because the app's tag colour list never had a
+  // plain "Green tag" option, so whoever tagged these 2 bulls picked the
+  // closest green available. Confirmed with the user it should be Green tag
+  // (2019 cycle). Renames it in the saved tag colour list (if it's still
+  // there — the code default already changed, but a list saved to the
+  // server before that change keeps its old saved value regardless) and on
+  // the one mob actually using it. Delete this whole block once applied.
+  const needsGreenTagFix =
+    (settings.tagColours || []).includes("Light green tag") ||
+    (data.mobs || []).some((m) => (m.tag || "").split(" + ").includes("Light green tag"));
+  const fixGreenTag = () => {
+    if ((settings.tagColours || []).includes("Light green tag")) {
+      const nextColours = settings.tagColours
+        .filter((t) => t !== "Light green tag")
+        .concat(settings.tagColours.includes("Green tag") ? [] : ["Green tag"]);
+      const next = { ...settings, tagColours: nextColours };
+      setSettings(next);
+      saveKey(KEYS.settings, next);
+    }
+    const affected = (data.mobs || []).filter((m) => (m.tag || "").split(" + ").includes("Light green tag"));
+    if (affected.length) {
+      const renameTag = (tag) =>
+        tag
+          .split(" + ")
+          .map((p) => (p === "Light green tag" ? "Green tag" : p))
+          .join(" + ");
+      setAndSave(
+        "mobs",
+        data.mobs.map((m) => (affected.some((a) => a.id === m.id) ? { ...m, tag: renameTag(m.tag) } : m))
+      );
+      affected.forEach((m) => {
+        try {
+          logAudit("Edit mob", composeName(m) + " — " + m.property + ` · tag "Light green tag" → "Green tag" (2019 cycle)`, "mobs", m.id);
+        } catch {}
+      });
+    }
+    flash("Renamed to Green tag");
+  };
+
   const properties = settings.properties;
 
   // Unread-chat dot on the nav button — checks every channel's latest message
@@ -3456,12 +3508,14 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 
   // Tag colour already gets recorded on almost every mob, so rather than a
   // separate age field nobody would fill in, this reads the year straight
-  // off whatever year(s) each tag colour is mapped to in Setup — "M/A" or an
-  // unmapped colour just comes through blank. A mob with two tag colours
-  // (e.g. "Black + Blue tag", a split cohort) shows both years joined.
+  // off each tag colour — the built-in defaults (TAG_YEAR), overridden by
+  // anything set in Setup > Tag colour years (needed for a colour that's
+  // cycled back to an older occurrence — see dropLabel/CYCLE_YEARS above).
+  // "M/A" or a genuinely unmapped colour comes through blank. A mob with two
+  // tag colours (e.g. "Black + Blue tag", a split cohort) shows both years.
   const yearForTag = (tag) => {
     if (!tag || tag === "M/A") return "";
-    const map = settings.tagYears || {};
+    const map = { ...TAG_YEAR, ...(settings.tagYears || {}) };
     const parts = tag.split(" + ").map((p) => (p.endsWith(" tag") ? p : p + " tag"));
     return [...new Set(parts.map((p) => map[p]).filter(Boolean))].join("/");
   };
@@ -4085,7 +4139,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                         <div className="mob-name">{composeName(m)}</div>
                         <div className="mob-sub">
                           {m.species}
-                          {dropLabel(m.tag) ? " · " + dropLabel(m.tag) : ""}
+                          {dropLabel(m.tag, settings.tagYears) ? " · " + dropLabel(m.tag, settings.tagYears) : ""}
                         </div>
                         {m.notes && <div className="mob-note">{m.notes}</div>}
                       </div>
@@ -4996,24 +5050,38 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 <section className="card">
                   <div className="card-title">Tag colour years</div>
                   <p className="note">
-                    What drop year does each tag colour mean on this property? Used to show a Year column in the
-                    stock-by-class export — leave a colour blank if it isn't year-specific (reused every year, or
-                    used for M/A).
+                    What drop year does each tag colour mean on this property? The cycle repeats every{" "}
+                    {CYCLE_YEARS} years — a colour comes back around, so the same colour can mean an older year for
+                    stock old enough to have gone through the cycle once already. Leave blank to use the default
+                    shown, or type a year to override it (needed for that older occurrence). Leave blank and unused
+                    if the colour isn't year-specific at all (reused every year, or used for M/A).
                   </p>
-                  {(settings.tagColours || []).map((t) => (
-                    <div className="f-row" key={t}>
-                      <label className="f-label">{t}</label>
-                      <input
-                        value={(settings.tagYears || {})[t] || ""}
-                        onChange={(e) => {
-                          const next = { ...settings, tagYears: { ...(settings.tagYears || {}), [t]: e.target.value } };
-                          setSettings(next);
-                          saveKey(KEYS.settings, next);
-                        }}
-                        placeholder="e.g. 2024"
-                      />
-                    </div>
-                  ))}
+                  {(settings.tagColours || []).map((t) => {
+                    const override = (settings.tagYears || {})[t];
+                    const def = TAG_YEAR[t];
+                    return (
+                      <div className="f-row" key={t}>
+                        <label className="f-label">
+                          {t}
+                          {def && (
+                            <span className="opt">
+                              {" "}
+                              default {def} · previous cycle {def - CYCLE_YEARS}
+                            </span>
+                          )}
+                        </label>
+                        <input
+                          value={override || ""}
+                          onChange={(e) => {
+                            const next = { ...settings, tagYears: { ...(settings.tagYears || {}), [t]: e.target.value } };
+                            setSettings(next);
+                            saveKey(KEYS.settings, next);
+                          }}
+                          placeholder={def ? String(def) : "e.g. 2024"}
+                        />
+                      </div>
+                    );
+                  })}
                 </section>
               )}
               {["Cattle", "Sheep"].map((sp) => (
@@ -5085,6 +5153,19 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 </p>
                 <button className="btn primary" onClick={() => ask("Set Black tag · Heifers (Billabong) to 0 head?", fixHeiferCount)}>
                   Correct to 0
+                </button>
+              </section>
+            )}
+            {needsGreenTagFix && (
+              <section className="card">
+                <div className="card-title">⚠ "Light green tag" should be "Green tag"</div>
+                <p className="note">
+                  Confirmed with Chris: this was never a real colour — the app just never had a plain "Green tag"
+                  option, so it stood in for one. Renames it in the tag colour list and on the Lawson Bulls mob (2
+                  hd, Minto · Saddling) that's using it — a 2019-cycle drop, not a new/unknown colour.
+                </p>
+                <button className="btn primary" onClick={() => ask('Rename "Light green tag" to "Green tag"?', fixGreenTag)}>
+                  Rename to Green tag
                 </button>
               </section>
             )}
