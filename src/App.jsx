@@ -2618,22 +2618,29 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   };
 
   // Reclassify screen: groups every not-yet-reclassified mob with head by
-  // its old (species, breed, class, status) combination — tag/Age doesn't
-  // change and isn't part of the grouping, since it's already correct and
-  // untouched by this. Pre-fills each group's proposed new values from
-  // RECLASSIFY_MAP where a combination was already worked through; anything
-  // not in that table starts blank rather than guessing.
-  const comboKey = (m) => [m.species, m.breed || "", m.cls || "", m.status || ""].join("|");
+  // property, paddock and its old (species, breed, class, status)
+  // combination — property/paddock has to be part of the grouping, not
+  // just the classification fields, otherwise there'd be no way to tell
+  // which physical mob a group is actually pointing at, or to cross-check
+  // it against what's really in that paddock. classifyKey (no location) is
+  // still what looks up RECLASSIFY_MAP, since the same breed/class/status
+  // proposes the same new values regardless of which paddock it's in; tag/
+  // Age isn't part of either key since it doesn't change and stays as-is.
+  const classifyKey = (m) => [m.species, m.breed || "", m.cls || "", m.status || ""].join("|");
   const reclassifyGroups = useMemo(() => {
     const groups = {};
     (data.mobs || [])
       .filter((m) => !m.reclassified && num(m.head) > 0)
       .forEach((m) => {
-        const key = comboKey(m);
+        const ck = classifyKey(m);
+        const key = [m.property, m.paddock || "", ck].join("~");
         if (!groups[key]) {
           groups[key] = {
             key,
+            classifyKey: ck,
             species: m.species,
+            property: m.property,
+            paddock: m.paddock || "",
             breed: m.breed || "",
             cls: m.cls || "",
             status: m.status || "",
@@ -2648,11 +2655,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       });
     return Object.values(groups)
       .map((g) => ({ ...g, tags: [...g.tags] }))
-      .sort((a, b) => b.head - a.head);
+      .sort((a, b) => (a.property + a.paddock).localeCompare(b.property + b.paddock) || b.head - a.head);
   }, [data.mobs]);
   const reclassifyTotalMobs = (data.mobs || []).filter((m) => num(m.head) > 0).length;
   const reclassifyDoneMobs = reclassifyTotalMobs - reclassifyGroups.reduce((a, g) => a + g.mobs.length, 0);
-  const draftFor = (g) => reclassifyDrafts[g.key] || RECLASSIFY_MAP[g.key] || { breed: g.breed, cls: "", status: "", timing: "", other: "" };
+  const draftFor = (g) => reclassifyDrafts[g.key] || RECLASSIFY_MAP[g.classifyKey] || { breed: g.breed, cls: "", status: "", timing: "", other: "" };
   const setDraftField = (g, field, value) => {
     setReclassifyDrafts((d) => ({ ...d, [g.key]: { ...draftFor(g), [field]: value } }));
   };
@@ -3911,12 +3918,14 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             return (
               <section className="card" key={g.key} style={{ margin: "0 0 12px" }}>
                 <div className="card-title">
-                  {g.species} · {g.breed || <span className="opt">no breed</span>} · {g.cls || <span className="opt">no class</span>}
-                  {g.status ? " · " + g.status : ""}
+                  {g.property}
+                  {g.paddock ? " · " + g.paddock : ""}
                   <span className="card-title-n">{g.head.toLocaleString()} hd</span>
                 </div>
                 <p className="note" style={{ margin: "0 0 10px" }}>
-                  {g.mobs.length} mob{g.mobs.length === 1 ? "" : "s"} · tag: {g.tags.join(", ")}
+                  {g.species} · {g.breed || <span className="opt">no breed</span>} · {g.cls || <span className="opt">no class</span>}
+                  {g.status ? " · " + g.status : ""} · {g.mobs.length} mob{g.mobs.length === 1 ? "" : "s"} · tag:{" "}
+                  {g.tags.join(", ")}
                 </p>
                 <div className="f-grid2">
                   <div className="f-row">
