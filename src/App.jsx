@@ -306,6 +306,12 @@ const LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAWgAAADaBAMAAAB5vsUs
 const LAND_USES = ["Silage", "Summer Crop", "Annual Pasture", "Perennial Pasture", "Spray", "Fertilizer"];
 const WOOL_ELIGIBLE = (m) => m.species === "Sheep" && (m.breed === "Merino" || m.breed === "Dorset");
 const INBOX = "Inbox";
+// The Inbox paddock value doubles as "the Yards" — mobs land there either
+// because a property transfer hasn't been allocated to a paddock yet, or
+// because they were mustered in to sort/reclass. Same physical place, same
+// sentinel value; this just prettifies it for display everywhere a paddock
+// name is shown.
+const paddockLabel = (p) => (p === INBOX ? "Yards" : p || "");
 const currentYearTag = () => {
   const y = new Date().getFullYear();
   const hit = Object.entries(TAG_YEAR).find(([t, yr]) => yr === y && t !== "Blue tag");
@@ -2313,6 +2319,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const [viewMob, setViewMob] = useState(null);
   const [reclassifyOpen, setReclassifyOpen] = useState(false);
   const [reclassifyDrafts, setReclassifyDrafts] = useState({});
+  const [sortMob, setSortMob] = useState(null); // the mob currently being drafted/sorted, or null
+  const [sortRows, setSortRows] = useState([]);
+  const [sortErr, setSortErr] = useState("");
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState(null); // { message, onYes }
   const [commentary, setCommentary] = useState({ prop: "", text: "", loading: false });
@@ -2732,6 +2741,111 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       return next;
     });
     flash(`Reclassified ${g.mobs.length} mob${g.mobs.length === 1 ? "" : "s"}`);
+  };
+
+  // Mustering: bring a mob in to the Yards (Inbox) to sort, then draft it
+  // back out — see openSort/submitSort below for the actual split. This is
+  // just the "bring in" half: a plain whole-mob paddock move, no reclass.
+  const sendToYards = (mob) => {
+    if (!mob || mob.paddock === INBOX) return;
+    saveRecord("moves", { id: uid(), createdAt: Date.now(), date: todayStr(), mobId: mob.id, toPaddock: INBOX });
+    setViewMob(null);
+  };
+
+  // Draft/sort a single mob into one or more outcome groups in one go — each
+  // group can have its own head count, Class/Status (for reclassifying, e.g.
+  // a Ewe SIL becoming a Ewe LAF after lambing) and destination paddock
+  // (including staying in the Yards for further sorting). Deliberately its
+  // own save path rather than looping saveRecord() per row: saveRecord reads
+  // data.mobs from the render closure, so several calls in the same click
+  // would each start from the same stale head count instead of accumulating.
+  const openSort = (mob) => {
+    setSortErr("");
+    setSortMob(mob);
+    setSortRows([
+      { head: "", cls: mob.cls || "", status: mob.status || "", toPaddock: "" },
+      { head: "", cls: mob.cls || "", status: mob.status || "", toPaddock: "" },
+    ]);
+  };
+  const closeSortOverlay = () => {
+    setSortMob(null);
+    setSortRows([]);
+    setSortErr("");
+  };
+  const addSortRow = () =>
+    setSortRows((rows) => [...rows, { head: "", cls: sortMob?.cls || "", status: sortMob?.status || "", toPaddock: "" }]);
+  const removeSortRow = (i) => setSortRows((rows) => rows.filter((_, idx) => idx !== i));
+  const setSortRowField = (i, key, value) => setSortRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
+  const sortAllocated = sortRows.reduce((a, r) => a + (Math.round(num(r.head)) || 0), 0);
+  const sortRemaining = sortMob ? Math.round(num(sortMob.head)) - sortAllocated : 0;
+  const submitSort = () => {
+    const source = sortMob;
+    if (!source) return;
+    const rows = sortRows.filter((r) => num(r.head) > 0 && r.toPaddock && r.cls);
+    if (!rows.length) {
+      setSortErr("Add at least one group with head, class and a destination");
+      return;
+    }
+    const totalHead = rows.reduce((a, r) => a + Math.round(num(r.head)), 0);
+    if (totalHead > Math.round(num(source.head))) {
+      setSortErr(`Only ${Math.round(num(source.head)).toLocaleString()} head available to sort`);
+      return;
+    }
+    const srcName = composeName(source);
+    let mobs = [...data.mobs];
+    const newMoveRecs = [];
+    const auditEntries = [];
+    rows.forEach((row) => {
+      const moveHead = Math.round(num(row.head));
+      const overrides = { cls: row.cls, status: row.status || "" };
+      const destName = composeName({ ...source, ...overrides });
+      const destIdx = mobs.findIndex(
+        (m) => m.id !== source.id && m.property === source.property && m.paddock === row.toPaddock && composeName(m) === destName
+      );
+      if (destIdx >= 0) {
+        mobs[destIdx] = { ...mobs[destIdx], head: num(mobs[destIdx].head) + moveHead };
+      } else {
+        mobs = [{ ...source, ...overrides, id: uid(), head: moveHead, paddock: row.toPaddock, createdAt: Date.now() }, ...mobs];
+      }
+      // No arrow in this text (unlike the title's mobName → toPaddock) — the
+      // legacy lost-entry recovery parser for "moves" summaries greedily
+      // matches up to the LAST arrow in the string, so a second one here
+      // would make it misread mobName/toPaddock for any move that gets
+      // reconstructed from just its audit trail.
+      const reclassNote = destName !== srcName ? `was ${srcName}` : "";
+      const recId = uid();
+      const rec = {
+        id: recId,
+        createdAt: Date.now(),
+        date: todayStr(),
+        mobId: source.id,
+        fromPaddock: source.paddock || "",
+        toPaddock: row.toPaddock,
+        head: moveHead,
+        property: source.property,
+        mobName: destName,
+        split: true,
+        reclassNote,
+        notes: reclassNote ? "Sorted — reclassified, " + reclassNote : "Sorted",
+      };
+      newMoveRecs.push(rec);
+      const s = summarise("moves", rec);
+      auditEntries.push({
+        id: uid(),
+        ts: Date.now(),
+        user: userEmail || "unknown",
+        action: "Paddock move",
+        summary: [s.title, s.sub].filter(Boolean).join(" · "),
+        typeKey: "moves",
+        recordId: recId,
+      });
+    });
+    mobs = mobs.map((m) => (m.id === source.id ? { ...m, head: num(m.head) - totalHead } : m));
+    setAndSave("mobs", mobs);
+    setAndSave("moves", [...newMoveRecs, ...data.moves]);
+    setAndSave("audit", [...auditEntries, ...(data.audit || [])]);
+    closeSortOverlay();
+    flash(`Sorted ${totalHead.toLocaleString()} head into ${rows.length} group${rows.length === 1 ? "" : "s"}`);
   };
 
   const properties = settings.properties;
@@ -3484,8 +3598,14 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     switch (typeKey) {
       case "moves":
         return {
-          title: `${r.head ? r.head + " of " : ""}${r.mobName || "Mob"} → ${r.toPaddock}`,
-          sub: `${r.fromPaddock ? `from ${r.fromPaddock} · ` : ""}${r.property || ""}`,
+          title: `${r.head ? r.head + " of " : ""}${r.mobName || "Mob"} → ${paddockLabel(r.toPaddock)}`,
+          sub: [
+            r.fromPaddock ? `from ${paddockLabel(r.fromPaddock)}` : "",
+            r.property || "",
+            r.reclassNote ? `reclassified, ${r.reclassNote}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
         };
       case "health":
         return {
@@ -3996,7 +4116,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               <span>Location</span>
               <span className="rain-mm">
                 {viewMob.property}
-                {viewMob.paddock ? " · " + viewMob.paddock : ""}
+                {viewMob.paddock ? " · " + paddockLabel(viewMob.paddock) : ""}
               </span>
             </div>
             <div className="rain-row">
@@ -4040,8 +4160,117 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             >
               Edit mob
             </button>
+            {num(viewMob.head) > 0 && (
+              <button
+                className="btn ghost sm"
+                onClick={() => {
+                  openSort(viewMob);
+                  setViewMob(null);
+                }}
+              >
+                Sort / draft
+              </button>
+            )}
+            {viewMob.paddock !== INBOX && (
+              <button className="btn ghost sm" onClick={() => sendToYards(viewMob)}>
+                → Send to yards
+              </button>
+            )}
             <button className="btn ghost sm" onClick={() => setViewMob(null)}>
               Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const sortOverlay = sortMob && (
+    <div className="overlay" onClick={(e) => e.target === e.currentTarget && closeSortOverlay()}>
+      <div className="sheet">
+        <div className="card form-card">
+          <div className="form-head">
+            <Chip color={TAG.moves}>Sort — {composeName(sortMob)}</Chip>
+            <button className="btn ghost sm" onClick={closeSortOverlay}>
+              Close
+            </button>
+          </div>
+          <p className="note">
+            {sortMob.property}
+            {sortMob.paddock ? " · " + paddockLabel(sortMob.paddock) : ""} — {num(sortMob.head).toLocaleString()} hd
+            available. Split into groups below — each can go to a different paddock (or stay in the Yards) and
+            change Class/Status if it needs reclassifying. Anything you don't allocate below just stays as-is.
+          </p>
+          {sortRows.map((row, i) => (
+            <section className="card" key={i} style={{ margin: "0 0 10px" }}>
+              <div className="f-grid2">
+                <div className="f-row">
+                  <label className="f-label">Head</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={row.head}
+                    onChange={(e) => setSortRowField(i, "head", e.target.value)}
+                  />
+                </div>
+                <div className="f-row">
+                  <label className="f-label">To</label>
+                  <select value={row.toPaddock} onChange={(e) => setSortRowField(i, "toPaddock", e.target.value)}>
+                    <option value="">Select…</option>
+                    <option value={INBOX}>Yards (keep sorting)</option>
+                    {paddocksFor(sortMob.property).map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="f-grid2">
+                <div className="f-row">
+                  <label className="f-label">Class</label>
+                  <select value={row.cls} onChange={(e) => setSortRowField(i, "cls", e.target.value)}>
+                    <option value="">Select…</option>
+                    {(settings.classes?.[sortMob.species] || []).map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="f-row">
+                  <label className="f-label">
+                    Status <span className="opt">optional</span>
+                  </label>
+                  <select value={row.status} onChange={(e) => setSortRowField(i, "status", e.target.value)}>
+                    <option value="">—</option>
+                    {(settings.statuses?.[sortMob.species] || []).map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {sortRows.length > 1 && (
+                <button className="btn ghost sm" onClick={() => removeSortRow(i)}>
+                  Remove group
+                </button>
+              )}
+            </section>
+          ))}
+          <div className="btn-row" style={{ justifyContent: "flex-start", marginBottom: 10 }}>
+            <button className="btn ghost sm" onClick={addSortRow}>
+              + Add group
+            </button>
+          </div>
+          <div className="rain-row">
+            <span>Remaining unallocated</span>
+            <span className={"rain-mm" + (sortRemaining < 0 ? " neg" : "")}>{sortRemaining.toLocaleString()}</span>
+          </div>
+          {sortErr && <div className="err">{sortErr}</div>}
+          <div className="btn-row" style={{ marginTop: 12 }}>
+            <button className="btn ghost" onClick={closeSortOverlay}>
+              Cancel
+            </button>
+            <button className="btn primary" onClick={submitSort}>
+              Save sort
             </button>
           </div>
         </div>
@@ -4326,7 +4555,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 
             {data.mobs.filter((m) => m.paddock === INBOX && num(m.head) > 0 && (propFilter === "All" || m.property === propFilter)).length > 0 && (
               <section className="card inbox-card">
-                <div className="card-title">🐂 Receiving yards — stock to allocate</div>
+                <div className="card-title">🐂 Yards — stock to sort / allocate</div>
                 {data.mobs
                   .filter((m) => m.paddock === INBOX && num(m.head) > 0 && (propFilter === "All" || m.property === propFilter))
                   .map((m) => (
@@ -4334,9 +4563,14 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                       <span style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                         {composeName(m)} — {num(m.head).toLocaleString()} hd ({m.property})
                       </span>
-                      <button className="mini-btn allocate" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
-                        Allocate
-                      </button>
+                      <span style={{ display: "flex", gap: 6 }}>
+                        <button className="mini-btn" onClick={() => openSort(m)}>
+                          Sort
+                        </button>
+                        <button className="mini-btn allocate" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
+                          Allocate
+                        </button>
+                      </span>
                     </div>
                   ))}
               </section>
@@ -5138,17 +5372,22 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   {data.mobs.filter((m) => m.property === prop && m.paddock === INBOX && num(m.head) > 0).map((m) => (
                     <div className="inbox-row" key={m.id}>
                       <div className="pdk-main">
-                        <div className="pdk-name">🐂 Receiving yards — awaiting allocation</div>
+                        <div className="pdk-name">🐂 Yards — awaiting sort / allocation</div>
                         <div className="pdk-mob">
                           <span style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                             {composeName(m)} — {num(m.head).toLocaleString()}
                           </span>
-                          <button
-                            className="mini-btn allocate"
-                            onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}
-                          >
-                            Allocate
-                          </button>
+                          <span style={{ display: "flex", gap: 6 }}>
+                            <button className="mini-btn" onClick={() => openSort(m)}>
+                              Sort
+                            </button>
+                            <button
+                              className="mini-btn allocate"
+                              onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}
+                            >
+                              Allocate
+                            </button>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -5805,6 +6044,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 
       {formOverlay}
       {mobDetailOverlay}
+      {sortOverlay}
       {reclassifyOverlay}
       {confirm && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && setConfirm(null)}>
