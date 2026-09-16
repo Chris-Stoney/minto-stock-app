@@ -1969,6 +1969,7 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const fileRef = useRef(null);
+  const textRef = useRef(null);
   const key = "mp2:chat:" + property;
 
   useEffect(() => {
@@ -2100,6 +2101,7 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
     await saveKey(key, next);
     setMsgs(next);
     setText("");
+    if (textRef.current) textRef.current.style.height = "auto";
     setBusy(false);
     // Fire-and-forget: a failed push shouldn't block sending the message itself.
     (async () => {
@@ -2248,12 +2250,23 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
           📷
         </button>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onPickPhoto} />
-        <input
+        <textarea
+          ref={textRef}
           className="chat-input"
+          rows={1}
           value={text}
           placeholder={property === "General" ? "Message everyone…" : "Message " + property + "…"}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !busy && send()}
+          onChange={(e) => {
+            setText(e.target.value);
+            e.target.style.height = "auto";
+            e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !busy) {
+              e.preventDefault();
+              send();
+            }
+          }}
         />
         <button className="btn primary sm" disabled={busy} onClick={() => send()}>
           {busy ? "…" : "Send"}
@@ -6875,11 +6888,11 @@ function Style() {
     .react-add:active { opacity: 1; }
     .chat-bar {
       position: fixed; bottom: 62px; left: 50%; transform: translateX(-50%);
-      width: 100%; max-width: 560px; display: flex; gap: 8px; align-items: center;
+      width: 100%; max-width: 560px; display: flex; gap: 8px; align-items: flex-end;
       background: #E9E7DF; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)/2);
       border-top: 1px solid #D9D6CB; z-index: 25;
     }
-    .chat-input { flex: 1; }
+    .chat-input { flex: 1; resize: none; line-height: 1.35; max-height: 140px; overflow-y: auto; }
     .chat-photo-btn {
       background: #FFFFFF; border: 1px solid #C9C6B9; border-radius: 10px;
       font-size: 20px; padding: 8px 11px;
