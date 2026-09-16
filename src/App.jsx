@@ -3755,6 +3755,39 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     URL.revokeObjectURL(url);
   };
 
+  // One row per day rather than per record — the itemized Sales/Trucking
+  // lists already show every individual load; this answers "how many head
+  // actually left, in total, on a given day" without having to add it up
+  // by hand across however many separate loads that took.
+  const movementsByDay = () => {
+    const rows = byProp(data.trucking.filter((t) => t.ttype === "Sale to market" || t.ttype === "Property transfer"));
+    const byDate = {};
+    rows.forEach((r) => {
+      const d = (byDate[r.date] = byDate[r.date] || { date: r.date, sold: 0, transferred: 0 });
+      if (r.ttype === "Sale to market") d.sold += num(r.head);
+      else d.transferred += num(r.head);
+    });
+    return Object.values(byDate).sort((a, b) => new Date(b.date) - new Date(a.date));
+  };
+  const exportMovementsCsv = () => {
+    const esc = (v) => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const rows = movementsByDay();
+    const header = ["Date", "Sold", "Transferred", "Total"];
+    const lines = [header.join(",")];
+    rows.forEach((r) => lines.push([fmtDate(r.date), r.sold, r.transferred, r.sold + r.transferred].map(esc).join(",")));
+    const csv = lines.join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "stock-movements-by-day" + (propFilter !== "All" ? "-" + propFilter : "") + ".csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const [exportText, setExportText] = useState("");
   const exportData = () => {
     setExportText(JSON.stringify({ exported: new Date().toISOString(), build: BUILD, ...data }));
@@ -4603,6 +4636,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               <span className="rec-cat-n">{byProp(data.trucking.filter((t) => t.ttype === "Sale to market")).length}</span>
               <span className="rec-cat-arrow">›</span>
             </button>
+            <button className="rec-cat" onClick={() => setRecordView("movements")}>
+              <span className="act-dot lg" style={{ background: TAG.trucking }} />
+              <span className="rec-cat-label">Movements by day</span>
+              <span className="rec-cat-n">{movementsByDay().length}</span>
+              <span className="rec-cat-arrow">›</span>
+            </button>
             {Object.entries(RECORD_TYPES).map(([k, cfg]) => (
               <button className="rec-cat" key={k} onClick={() => setRecordView(k)}>
                 <span className="act-dot lg" style={{ background: cfg.tag }} />
@@ -4738,7 +4777,65 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           </>
         )}
 
-        {tab === "records" && recordView && recordView !== "wool" && recordView !== "sales" && (
+        {tab === "records" && recordView === "movements" && (
+          <>
+            <div className="section-head">
+              <button className="back" onClick={() => setRecordView(null)}>
+                ‹ Records
+              </button>
+              <button className="btn primary sm" onClick={exportMovementsCsv}>
+                ⬇ Export CSV
+              </button>
+            </div>
+            <h2 className="rec-h">Movements by day</h2>
+            <p className="note">
+              Sales to market and property transfers, added up per day — the itemized loads are still in Sales to
+              market and Trucking / transfer if you need to check one.
+            </p>
+            {(() => {
+              const days = movementsByDay();
+              const totalSold = days.reduce((a, d) => a + d.sold, 0);
+              const totalTransferred = days.reduce((a, d) => a + d.transferred, 0);
+              return (
+                <>
+                  <section className="card">
+                    <div className="rain-row">
+                      <span>Total sold</span>
+                      <span className="rain-mm">{totalSold.toLocaleString()}</span>
+                    </div>
+                    <div className="rain-row">
+                      <span>Total transferred</span>
+                      <span className="rain-mm">{totalTransferred.toLocaleString()}</span>
+                    </div>
+                    <div className="rain-row bd-total">
+                      <span>Total moved</span>
+                      <span className="rain-mm">{(totalSold + totalTransferred).toLocaleString()}</span>
+                    </div>
+                  </section>
+                  <section className="card">
+                    {days.length === 0 && <div className="empty">No sales or transfers recorded yet.</div>}
+                    {days.map((d) => (
+                      <div className="rain-row" key={d.date}>
+                        <span>
+                          {fmtDate(d.date)}
+                          <span className="whp-date">
+                            {" "}
+                            · {d.sold ? d.sold.toLocaleString() + " sold" : ""}
+                            {d.sold && d.transferred ? " · " : ""}
+                            {d.transferred ? d.transferred.toLocaleString() + " transferred" : ""}
+                          </span>
+                        </span>
+                        <span className="rain-mm">{(d.sold + d.transferred).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </section>
+                </>
+              );
+            })()}
+          </>
+        )}
+
+        {tab === "records" && recordView && recordView !== "wool" && recordView !== "sales" && recordView !== "movements" && (
           <>
             <div className="section-head">
               <button className="back" onClick={() => setRecordView(null)}>
