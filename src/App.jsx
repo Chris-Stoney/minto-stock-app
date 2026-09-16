@@ -2778,22 +2778,31 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const setSortRowField = (i, key, value) => setSortRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
   const sortAllocated = sortRows.reduce((a, r) => a + (Math.round(num(r.head)) || 0), 0);
   const sortRemaining = sortMob ? Math.round(num(sortMob.head)) - sortAllocated : 0;
-  const submitSort = () => {
+  // markMissing: also books whatever's left unallocated as a "Mismustered /
+  // missing" stock adjustment on the source mob — for when fewer actually
+  // turned up than the book count (e.g. 500 expected, only 450 mustered).
+  // Without this, the shortfall would just sit unaccounted for as a reduced
+  // — but still "in the Yards" — leftover on the original mob, with nothing
+  // flagging that it's short. The other direction (more turned up than
+  // expected) isn't handled here — recount the mob up first, then sort.
+  const submitSort = (markMissing = false) => {
     const source = sortMob;
     if (!source) return;
     const rows = sortRows.filter((r) => num(r.head) > 0 && r.toPaddock && r.cls);
-    if (!rows.length) {
-      setSortErr("Add at least one group with head, class and a destination");
-      return;
-    }
     const totalHead = rows.reduce((a, r) => a + Math.round(num(r.head)), 0);
     if (totalHead > Math.round(num(source.head))) {
       setSortErr(`Only ${Math.round(num(source.head)).toLocaleString()} head available to sort`);
       return;
     }
+    const remaining = Math.round(num(source.head)) - totalHead;
+    if (!rows.length && !(markMissing && remaining > 0)) {
+      setSortErr("Add at least one group with head, class and a destination");
+      return;
+    }
     const srcName = composeName(source);
     let mobs = [...data.mobs];
     const newMoveRecs = [];
+    const newAdjustRecs = [];
     const auditEntries = [];
     rows.forEach((row) => {
       const moveHead = Math.round(num(row.head));
@@ -2841,11 +2850,45 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       });
     });
     mobs = mobs.map((m) => (m.id === source.id ? { ...m, head: num(m.head) - totalHead } : m));
+
+    if (markMissing && remaining > 0) {
+      const adjRec = {
+        id: uid(),
+        createdAt: Date.now(),
+        date: todayStr(),
+        mobId: source.id,
+        reason: "Mismustered / missing",
+        head: remaining,
+        delta: -remaining,
+        mobName: srcName,
+        property: source.property,
+        cls: source.cls,
+        species: source.species,
+        notes: "Unaccounted for while sorting in the Yards",
+      };
+      newAdjustRecs.push(adjRec);
+      mobs = mobs.map((m) => (m.id === source.id ? { ...m, head: num(m.head) - remaining } : m));
+      const sAdj = summarise("adjust", adjRec);
+      auditEntries.push({
+        id: uid(),
+        ts: Date.now(),
+        user: userEmail || "unknown",
+        action: RECORD_TYPES.adjust.single,
+        summary: [sAdj.title, sAdj.sub].filter(Boolean).join(" · "),
+        typeKey: "adjust",
+        recordId: adjRec.id,
+      });
+    }
+
     setAndSave("mobs", mobs);
-    setAndSave("moves", [...newMoveRecs, ...data.moves]);
+    if (newMoveRecs.length) setAndSave("moves", [...newMoveRecs, ...data.moves]);
+    if (newAdjustRecs.length) setAndSave("adjust", [...newAdjustRecs, ...data.adjust]);
     setAndSave("audit", [...auditEntries, ...(data.audit || [])]);
     closeSortOverlay();
-    flash(`Sorted ${totalHead.toLocaleString()} head into ${rows.length} group${rows.length === 1 ? "" : "s"}`);
+    const parts = [];
+    if (totalHead) parts.push(`${totalHead.toLocaleString()} head into ${rows.length} group${rows.length === 1 ? "" : "s"}`);
+    if (newAdjustRecs.length) parts.push(`${remaining.toLocaleString()} marked missing`);
+    flash(`Sorted — ${parts.join(" · ")}`);
   };
 
   const properties = settings.properties;
@@ -4269,7 +4312,16 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <button className="btn ghost" onClick={closeSortOverlay}>
               Cancel
             </button>
-            <button className="btn primary" onClick={submitSort}>
+            {sortRemaining > 0 && (
+              <button
+                className="btn ghost sm"
+                style={{ color: "#B03A2E", borderColor: "#B03A2E" }}
+                onClick={() => submitSort(true)}
+              >
+                Mark {sortRemaining.toLocaleString()} missing
+              </button>
+            )}
+            <button className="btn primary" onClick={() => submitSort(false)}>
               Save sort
             </button>
           </div>
