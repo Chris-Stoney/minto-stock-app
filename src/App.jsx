@@ -3758,16 +3758,31 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // One row per day rather than per record — the itemized Sales/Trucking
   // lists already show every individual load; this answers "how many head
   // actually left, in total, on a given day" without having to add it up
-  // by hand across however many separate loads that took.
+  // by hand across however many separate loads that took. Split cattle vs
+  // sheep since a "total head" number on its own mixes the two.
   const movementsByDay = () => {
     const rows = byProp(data.trucking.filter((t) => t.ttype === "Sale to market" || t.ttype === "Property transfer"));
     const byDate = {};
     rows.forEach((r) => {
-      const d = (byDate[r.date] = byDate[r.date] || { date: r.date, sold: 0, transferred: 0 });
-      if (r.ttype === "Sale to market") d.sold += num(r.head);
-      else d.transferred += num(r.head);
+      const d = (byDate[r.date] = byDate[r.date] || {
+        date: r.date,
+        soldCattle: 0,
+        soldSheep: 0,
+        transferredCattle: 0,
+        transferredSheep: 0,
+      });
+      const isCattle = r.species === "Cattle";
+      if (r.ttype === "Sale to market") {
+        if (isCattle) d.soldCattle += num(r.head);
+        else d.soldSheep += num(r.head);
+      } else {
+        if (isCattle) d.transferredCattle += num(r.head);
+        else d.transferredSheep += num(r.head);
+      }
     });
-    return Object.values(byDate).sort((a, b) => new Date(b.date) - new Date(a.date));
+    return Object.values(byDate)
+      .map((d) => ({ ...d, sold: d.soldCattle + d.soldSheep, transferred: d.transferredCattle + d.transferredSheep }))
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
   };
   const exportMovementsCsv = () => {
     const esc = (v) => {
@@ -3775,15 +3790,59 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
     const rows = movementsByDay();
-    const header = ["Date", "Sold", "Transferred", "Total"];
+    const header = ["Date", "Cattle sold", "Sheep sold", "Cattle transferred", "Sheep transferred", "Total"];
     const lines = [header.join(",")];
-    rows.forEach((r) => lines.push([fmtDate(r.date), r.sold, r.transferred, r.sold + r.transferred].map(esc).join(",")));
+    rows.forEach((r) =>
+      lines.push(
+        [fmtDate(r.date), r.soldCattle, r.soldSheep, r.transferredCattle, r.transferredSheep, r.sold + r.transferred]
+          .map(esc)
+          .join(",")
+      )
+    );
     const csv = lines.join("\r\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = "stock-movements-by-day" + (propFilter !== "All" ? "-" + propFilter : "") + ".csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  // Every individual sale/transfer load, one row each — for when the daily
+  // rollup isn't enough detail and it's easier to pivot/filter in a
+  // spreadsheet than to add another view here.
+  const exportTruckingCsv = () => {
+    const esc = (v) => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const rows = byProp(data.trucking.filter((t) => t.ttype === "Sale to market" || t.ttype === "Property transfer")).sort(
+      (a, b) => new Date(b.date) - new Date(a.date)
+    );
+    const header = ["Date", "Property", "Type", "Species", "Mob", "Head", "Destination / to property", "Carrier"];
+    const lines = [header.join(",")];
+    rows.forEach((r) => {
+      lines.push(
+        [
+          fmtDate(r.date),
+          r.property,
+          r.ttype,
+          r.species || "",
+          r.mobName || "",
+          num(r.head),
+          r.ttype === "Sale to market" ? r.destination || "" : r.toProperty || "",
+          r.carrier || "",
+        ]
+          .map(esc)
+          .join(",")
+      );
+    });
+    const csv = lines.join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "trucking-records" + (propFilter !== "All" ? "-" + propFilter : "") + ".csv";
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -4783,28 +4842,47 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               <button className="back" onClick={() => setRecordView(null)}>
                 ‹ Records
               </button>
-              <button className="btn primary sm" onClick={exportMovementsCsv}>
-                ⬇ Export CSV
-              </button>
+              <div className="head-btns">
+                <button className="btn sm" onClick={exportTruckingCsv}>
+                  ⬇ All records
+                </button>
+                <button className="btn primary sm" onClick={exportMovementsCsv}>
+                  ⬇ By day
+                </button>
+              </div>
             </div>
             <h2 className="rec-h">Movements by day</h2>
             <p className="note">
-              Sales to market and property transfers, added up per day — the itemized loads are still in Sales to
-              market and Trucking / transfer if you need to check one.
+              Sales to market and property transfers, added up per day and split by cattle/sheep — the itemized
+              loads are still in Sales to market and Trucking / transfer if you need to check one, or use "Export
+              all records" for every individual load.
             </p>
             {(() => {
               const days = movementsByDay();
-              const totalSold = days.reduce((a, d) => a + d.sold, 0);
-              const totalTransferred = days.reduce((a, d) => a + d.transferred, 0);
+              const totalSoldCattle = days.reduce((a, d) => a + d.soldCattle, 0);
+              const totalSoldSheep = days.reduce((a, d) => a + d.soldSheep, 0);
+              const totalTransferredCattle = days.reduce((a, d) => a + d.transferredCattle, 0);
+              const totalTransferredSheep = days.reduce((a, d) => a + d.transferredSheep, 0);
+              const totalSold = totalSoldCattle + totalSoldSheep;
+              const totalTransferred = totalTransferredCattle + totalTransferredSheep;
+              const breakdown = (cattle, sheep) =>
+                [cattle ? cattle.toLocaleString() + " cattle" : "", sheep ? sheep.toLocaleString() + " sheep" : ""]
+                  .filter(Boolean)
+                  .join(" · ") || "0";
               return (
                 <>
                   <section className="card">
                     <div className="rain-row">
-                      <span>Total sold</span>
+                      <span>
+                        Total sold<span className="whp-date"> · {breakdown(totalSoldCattle, totalSoldSheep)}</span>
+                      </span>
                       <span className="rain-mm">{totalSold.toLocaleString()}</span>
                     </div>
                     <div className="rain-row">
-                      <span>Total transferred</span>
+                      <span>
+                        Total transferred
+                        <span className="whp-date"> · {breakdown(totalTransferredCattle, totalTransferredSheep)}</span>
+                      </span>
                       <span className="rain-mm">{totalTransferred.toLocaleString()}</span>
                     </div>
                     <div className="rain-row bd-total">
@@ -4820,9 +4898,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                           {fmtDate(d.date)}
                           <span className="whp-date">
                             {" "}
-                            · {d.sold ? d.sold.toLocaleString() + " sold" : ""}
-                            {d.sold && d.transferred ? " · " : ""}
-                            {d.transferred ? d.transferred.toLocaleString() + " transferred" : ""}
+                            {d.sold ? "· sold " + breakdown(d.soldCattle, d.soldSheep) + " " : ""}
+                            {d.transferred ? "· transferred " + breakdown(d.transferredCattle, d.transferredSheep) : ""}
                           </span>
                         </span>
                         <span className="rain-mm">{(d.sold + d.transferred).toLocaleString()}</span>
