@@ -2046,7 +2046,7 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
       localStorage.setItem(APNS_TOKEN_KEY, token);
       setPushOn(true);
     } catch (e) {
-      alert("Couldn't change notification settings — try again.");
+      alert("Couldn't change notification settings — " + ((e && (e.message || e.error)) || "try again") + ".");
     } finally {
       setPushBusy(false);
     }
