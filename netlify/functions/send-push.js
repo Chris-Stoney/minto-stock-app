@@ -166,6 +166,20 @@ export const handler = async (event) => {
     }
   }
 
+  // Shows up under Netlify -> Logs -> Functions -> send-push. Counts and
+  // Apple's own reply codes only — no tokens or keys.
+  console.log(
+    JSON.stringify({
+      channel,
+      subscriptions: subs.length,
+      targets: targets.length,
+      web: webTargets.length,
+      ios: iosTargets.length,
+      apnsConfigured: !!(apnsKeyId && apnsTeamId && apnsKey),
+      apnsReplies: iosResults.map((r) => (r ? { status: r.status, reason: (r.reason || "").slice(0, 120) } : null)),
+    })
+  );
+
   // Best-effort cleanup — RLS only lets a sender delete their own row, so this
   // only actually removes anything if the sender's own subscription died.
   const dead = [
