@@ -117,6 +117,10 @@ jobs:
                   NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
               }
           '''
+          # Clear the red badge on the app icon whenever the app is opened.
+          marker = "func applicationDidBecomeActive(_ application: UIApplication) {"
+          assert marker in s, "applicationDidBecomeActive not found"
+          s = s.replace(marker, marker + "\n        application.applicationIconBadgeNumber = 0", 1)
           s = s[:-1].rstrip() + "\n" + add + "\n}\n"
           open(p, "w").write(s)
           PY

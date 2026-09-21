@@ -171,7 +171,10 @@ export const handler = async (event) => {
       iosResults = await sendApns(
         iosTargets.map((s) => s.endpoint.slice("apns:".length)),
         jwt,
-        { aps: { alert: { title, body: (bodyText || "").slice(0, 160) }, sound: "default" }, url: "/" }
+        // badge: 1 puts a red 1 on the app icon; the app clears it when opened.
+        // (APNs only takes an absolute number, and the server doesn't know how
+        // many unread messages each phone has, so it's always 1.)
+        { aps: { alert: { title, body: (bodyText || "").slice(0, 160) }, sound: "default", badge: 1 }, url: "/" }
       );
     } catch {
       iosResults = [];
