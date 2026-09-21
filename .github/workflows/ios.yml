@@ -26,7 +26,7 @@ on:
 
 jobs:
   beta:
-    runs-on: macos-14
+    runs-on: macos-26
     # macOS minutes cost several times Linux ones — a stuck build should stop
     # itself rather than run for the 6-hour default.
     timeout-minutes: 40
