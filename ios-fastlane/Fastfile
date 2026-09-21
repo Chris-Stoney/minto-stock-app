@@ -70,7 +70,10 @@ platform :ios do
       scheme: "App",
       export_method: "app-store",
       # Capacitor's Info.plist reads its build number from CURRENT_PROJECT_VERSION.
-      xcargs: "CURRENT_PROJECT_VERSION=#{ENV['GITHUB_RUN_NUMBER']}",
+      # IPHONEOS_DEPLOYMENT_TARGET raises the minimum iOS from Capacitor's
+      # default 13.0 to 15.0 — Apple (ITMS-90068) requires 15+ for uploads from
+      # spring 2027, and every iPhone in use here is well past it.
+      xcargs: "CURRENT_PROJECT_VERSION=#{ENV['GITHUB_RUN_NUMBER']} IPHONEOS_DEPLOYMENT_TARGET=15.0",
       export_options: {
         provisioningProfiles: {
           "au.com.mintopastoral.farmrecords" => "match AppStore au.com.mintopastoral.farmrecords"
