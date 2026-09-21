@@ -2281,26 +2281,41 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
 export default function App({ onSignOut, userEmail, userName } = {}) {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
-  const [hasNewChat, setHasNewChat] = useState(false);
+  // Per-channel unread tracking (this device only): when each channel was
+  // last read, and how many messages from other people are newer than that.
+  // lastReadChat is the old single "whole chat" timestamp — kept only as the
+  // starting point for channels that haven't been opened since this landed.
   const [lastReadChat, setLastReadChat] = useState(0);
+  const [lastReadChan, setLastReadChan] = useState({});
+  const [unreadByChan, setUnreadByChan] = useState({});
+  const chanReadLoaded = useRef(false);
+  const hasNewChat = Object.values(unreadByChan).some((n) => n > 0);
   useEffect(() => {
     (async () => {
       try {
         const r = await window.storage.get("mp2:lastReadChat", false);
         if (r) setLastReadChat(Number(r.value) || 0);
       } catch {}
+      try {
+        const r = await window.storage.get("mp2:lastReadChans", false);
+        if (r) {
+          const parsed = typeof r.value === "string" ? JSON.parse(r.value) : r.value;
+          if (parsed && typeof parsed === "object") setLastReadChan(parsed);
+        }
+      } catch {}
+      chanReadLoaded.current = true;
     })();
   }, []);
   useEffect(() => {
-    if (tab !== "chat") return;
-    const now = Date.now();
-    setLastReadChat(now);
-    setHasNewChat(false);
+    if (!chanReadLoaded.current) return;
     try {
-      window.storage.set("mp2:lastReadChat", now, false);
+      window.storage.set("mp2:lastReadChans", JSON.stringify(lastReadChan), false);
     } catch {}
-    if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
-  }, [tab]);
+  }, [lastReadChan]);
+  const markChanRead = (c) => {
+    setLastReadChan((m) => ({ ...m, [c]: Date.now() }));
+    setUnreadByChan((u) => (u[c] ? { ...u, [c]: 0 } : u));
+  };
   const [data, setData] = useState({
     mobs: [],
     moves: [],
@@ -2907,9 +2922,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 
   const properties = settings.properties;
 
-  // Unread-chat dot on the nav button — checks every channel's latest message
-  // against when this device last opened Chat, independent of push
-  // notifications (works even for people who haven't turned those on).
+  // Unread counts per channel (drives the badges on the channel chips and the
+  // dot on the nav button) — checks every channel against when this device
+  // last read it, independent of push notifications (works even for people
+  // who haven't turned those on). Your own messages never count as unread,
+  // and whichever channel is open on screen is always treated as read.
   useEffect(() => {
     if (!loaded) return;
     const checkNewChat = async () => {
@@ -2917,14 +2934,31 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       try {
         const channels = ["General", ...properties];
         const lists = await Promise.all(channels.map((c) => loadKey("mp2:chat:" + c, [])));
-        const latest = lists.reduce((max, list) => Math.max(max, list.length ? list[list.length - 1].ts || 0 : 0), 0);
-        setHasNewChat(latest > lastReadChat);
+        const counts = {};
+        channels.forEach((c, i) => {
+          if (tab === "chat" && c === chatChannel) {
+            counts[c] = 0;
+            return;
+          }
+          const since = lastReadChan[c] ?? lastReadChat;
+          counts[c] = lists[i].filter((m) => (m.ts || 0) > since && m.author !== me).length;
+        });
+        setUnreadByChan(counts);
       } catch {}
     };
     checkNewChat();
     const t = setInterval(checkNewChat, 12000);
     return () => clearInterval(t);
-  }, [loaded, properties, lastReadChat]);
+  }, [loaded, properties, lastReadChan, lastReadChat, me, tab, chatChannel]);
+  useEffect(() => {
+    if (tab !== "chat") return;
+    markChanRead(chatChannel);
+    if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+    // Also mark it read on the way out, so messages that arrived while it was
+    // open on screen don't turn into unread the moment you switch away.
+    return () => markChanRead(chatChannel);
+    // eslint-disable-next-line
+  }, [tab, chatChannel]);
   const paddockMap = useMemo(() => {
     const map = {};
     properties.forEach((p) => {
@@ -5736,10 +5770,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               {["General", ...properties].map((c) => (
                 <button
                   key={c}
-                  className={"chan-chip" + (chatChannel === c ? " active" : "")}
+                  className={"chan-chip" + (chatChannel === c ? " active" : "") + (unreadByChan[c] > 0 ? " unread" : "")}
                   onClick={() => setChatChannel(c)}
                 >
                   {c}
+                  {unreadByChan[c] > 0 && <span className="chan-badge">{unreadByChan[c] > 99 ? "99+" : unreadByChan[c]}</span>}
                 </button>
               ))}
             </div>
@@ -6914,6 +6949,12 @@ function Style() {
       color: #55594d; white-space: nowrap;
     }
     .chan-chip.active { background: #2F4A33; border-color: #2F4A33; color: #F4F3EC; }
+    .chan-chip.unread { border-color: #C0392B; color: #23281F; background: #FDF1EF; }
+    .chan-badge {
+      display: inline-block; margin-left: 7px; min-width: 18px; padding: 1px 6px;
+      border-radius: 9px; background: #C0392B; color: #FFFFFF; font-size: 11.5px;
+      font-weight: 700; line-height: 16px; text-align: center;
+    }
     .chat-list { display: flex; flex-direction: column; gap: 10px; padding-bottom: 64px; }
     .chat-msg {
       background: #FFFFFF; border: 1px solid #D9D6CB; border-radius: 12px;
