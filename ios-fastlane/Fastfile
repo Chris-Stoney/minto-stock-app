@@ -28,9 +28,13 @@ platform :ios do
     # a fresh Capacitor-generated ios/ project has no profile associated
     # with it yet on every run — match reuses the existing cert either way,
     # it just re-confirms the profile matches.
+    # force: true re-issues the provisioning profile every run. Needed once
+    # after Push Notifications was switched on for the App ID (the old profile
+    # doesn't carry that capability); cheap to leave in.
     match(
       type: "appstore",
-      readonly: false
+      readonly: false,
+      force: true
     )
 
     # fastlane runs from ios/, but Capacitor puts the Xcode project one level
@@ -46,6 +50,23 @@ platform :ios do
     set_info_plist_value(path: plist, key: "NSPhotoLibraryUsageDescription", value: "Choose photos to share in the team chat.")
     set_info_plist_value(path: plist, key: "ITSAppUsesNonExemptEncryption", value: false)
 
+    # Push notifications need the aps-environment entitlement. Capacitor's
+    # project has no entitlements file, so write one and attach it to the App
+    # target below. "production" is right for TestFlight and App Store builds.
+    File.write(
+      File.expand_path("App/App/App.entitlements"),
+      <<~PLIST
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+          <key>aps-environment</key>
+          <string>production</string>
+        </dict>
+        </plist>
+      PLIST
+    )
+
     # Capacitor's project ships with automatic signing; the certificate and
     # profile come from match, so switch it to manual and point it at them.
     update_code_signing_settings(
@@ -53,6 +74,7 @@ platform :ios do
       path: "App/App.xcodeproj",
       team_id: ENV["APPLE_TEAM_ID"],
       targets: ["App"],
+      entitlements_file_path: "App/App.entitlements",
       code_sign_identity: "Apple Distribution",
       profile_name: ENV["sigh_au.com.mintopastoral.farmrecords_appstore_profile-name"]
     )

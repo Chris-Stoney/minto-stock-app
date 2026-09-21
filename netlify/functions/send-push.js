@@ -11,6 +11,78 @@
    netlify/functions/, and a broken function blocks the whole site deploy
    (see the pasture-commentary function's history for why). */
 import webpush from "web-push";
+import http2 from "node:http2";
+import crypto from "node:crypto";
+
+// iPhone/iPad app devices are stored in push_subscriptions with endpoint
+// "apns:<device token>" and are sent through Apple's push service (APNs)
+// rather than web-push. Needs three Netlify env vars: APNS_KEY_ID,
+// APNS_TEAM_ID and APNS_KEY_P8 (the .p8 file's contents, raw or base64).
+const APNS_TOPIC = "au.com.mintopastoral.farmrecords";
+const isApns = (s) => (s.endpoint || "").startsWith("apns:");
+
+function apnsJwt(keyId, teamId, keyText) {
+  const pem = keyText.includes("BEGIN PRIVATE KEY") ? keyText : Buffer.from(keyText, "base64").toString("utf8");
+  const enc = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const unsigned = enc({ alg: "ES256", kid: keyId }) + "." + enc({ iss: teamId, iat: Math.floor(Date.now() / 1000) });
+  const sig = crypto.sign("sha256", Buffer.from(unsigned), { key: pem, dsaEncoding: "ieee-p1363" });
+  return unsigned + "." + sig.toString("base64url");
+}
+
+// One HTTP/2 connection, one request per device; resolves with a
+// {ok, status, reason} per token, in order, and never rejects.
+function sendApns(tokens, jwt, payload) {
+  return new Promise((resolve) => {
+    const out = new Array(tokens.length);
+    if (!tokens.length) return resolve(out);
+    let client;
+    try {
+      client = http2.connect("https://api.push.apple.com");
+    } catch {
+      return resolve(tokens.map(() => ({ ok: false, status: 0, reason: "connect" })));
+    }
+    client.on("error", () => {});
+    let pending = tokens.length;
+    const finish = (i, result) => {
+      if (out[i]) return;
+      out[i] = result;
+      if (--pending === 0) {
+        try {
+          client.close();
+        } catch {}
+        resolve(out);
+      }
+    };
+    const body = JSON.stringify(payload);
+    tokens.forEach((token, i) => {
+      try {
+        const req = client.request({
+          ":method": "POST",
+          ":path": "/3/device/" + token,
+          authorization: "bearer " + jwt,
+          "apns-topic": APNS_TOPIC,
+          "apns-push-type": "alert",
+          "apns-priority": "10",
+          "content-type": "application/json",
+        });
+        let status = 0;
+        let data = "";
+        req.on("response", (h) => {
+          status = h[":status"];
+        });
+        req.on("data", (c) => {
+          data += c;
+        });
+        req.on("close", () => finish(i, { ok: status === 200, status, reason: data }));
+        req.on("error", () => finish(i, { ok: false, status: 0, reason: "error" }));
+        req.setTimeout(8000, () => req.close());
+        req.end(body);
+      } catch {
+        finish(i, { ok: false, status: 0, reason: "request" });
+      }
+    });
+  });
+}
 
 const SUPABASE_URL = "https://hohokbhldedjyzbmywjp.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -46,12 +118,6 @@ export const handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: "Missing channel or title" }) };
   }
 
-  const vapidPublic = process.env.VAPID_PUBLIC_KEY;
-  const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
-  if (!vapidPublic || !vapidPrivate) {
-    return { statusCode: 500, body: JSON.stringify({ error: "Push isn't configured (missing VAPID keys)" }) };
-  }
-
   const subsRes = await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?select=*`, {
     headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
   });
@@ -60,23 +126,58 @@ export const handler = async (event) => {
   }
   const subs = await subsRes.json();
   const targets = subs.filter((s) => s.user_email !== senderEmail && (channel === "General" || s.property === channel));
+  const webTargets = targets.filter((s) => !isApns(s));
+  const iosTargets = targets.filter(isApns);
 
-  webpush.setVapidDetails("mailto:info@mintopastoral.com.au", vapidPublic, vapidPrivate);
+  const vapidPublic = process.env.VAPID_PUBLIC_KEY;
+  const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
+  if (webTargets.length && (!vapidPublic || !vapidPrivate)) {
+    return { statusCode: 500, body: JSON.stringify({ error: "Push isn't configured (missing VAPID keys)" }) };
+  }
 
-  const notifPayload = JSON.stringify({ title, body: (bodyText || "").slice(0, 160), url: "/" });
+  // Browsers / home-screen web apps
+  let webResults = [];
+  if (webTargets.length) {
+    webpush.setVapidDetails("mailto:info@mintopastoral.com.au", vapidPublic, vapidPrivate);
+    const notifPayload = JSON.stringify({ title, body: (bodyText || "").slice(0, 160), url: "/" });
+    webResults = await Promise.allSettled(
+      webTargets.map((s) =>
+        webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, notifPayload)
+      )
+    );
+  }
 
-  const results = await Promise.allSettled(
-    targets.map((s) =>
-      webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, notifPayload)
-    )
-  );
+  // The iPhone/iPad app. Skipped quietly if the APNs settings aren't in
+  // Netlify yet, so web push keeps working either way.
+  let iosResults = [];
+  const apnsKeyId = process.env.APNS_KEY_ID;
+  const apnsTeamId = process.env.APNS_TEAM_ID;
+  const apnsKey = process.env.APNS_KEY_P8;
+  if (iosTargets.length && apnsKeyId && apnsTeamId && apnsKey) {
+    try {
+      const jwt = apnsJwt(apnsKeyId, apnsTeamId, apnsKey);
+      iosResults = await sendApns(
+        iosTargets.map((s) => s.endpoint.slice("apns:".length)),
+        jwt,
+        { aps: { alert: { title, body: (bodyText || "").slice(0, 160) }, sound: "default" }, url: "/" }
+      );
+    } catch {
+      iosResults = [];
+    }
+  }
 
   // Best-effort cleanup — RLS only lets a sender delete their own row, so this
   // only actually removes anything if the sender's own subscription died.
-  const dead = targets.filter((s, i) => {
-    const r = results[i];
-    return r.status === "rejected" && (r.reason?.statusCode === 404 || r.reason?.statusCode === 410);
-  });
+  const dead = [
+    ...webTargets.filter((s, i) => {
+      const r = webResults[i];
+      return r && r.status === "rejected" && (r.reason?.statusCode === 404 || r.reason?.statusCode === 410);
+    }),
+    ...iosTargets.filter((s, i) => {
+      const r = iosResults[i];
+      return r && (r.status === 410 || (r.status === 400 && /BadDeviceToken|Unregistered/.test(r.reason || "")));
+    }),
+  ];
   await Promise.allSettled(
     dead.map((s) =>
       fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(s.endpoint)}`, {
@@ -86,6 +187,6 @@ export const handler = async (event) => {
     )
   );
 
-  const sent = results.filter((r) => r.status === "fulfilled").length;
+  const sent = webResults.filter((r) => r.status === "fulfilled").length + iosResults.filter((r) => r && r.ok).length;
   return { statusCode: 200, body: JSON.stringify({ sent, of: targets.length }) };
 };

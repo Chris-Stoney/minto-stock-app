@@ -1972,8 +1972,25 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
   const textRef = useRef(null);
   const key = "mp2:chat:" + property;
 
+  // Inside the iPhone/Android app the browser push system doesn't exist, so
+  // notifications go through the native plugin instead — Apple's push service
+  // hands this device a token, which is stored in the same push_subscriptions
+  // table as "apns:<token>" (the send-push function tells the two kinds apart
+  // by that prefix). The dynamic import keeps the plugin out of the way of
+  // the plain website.
+  const isNativeApp = () => !!(typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.());
+  const APNS_TOKEN_KEY = "mp2:apnsToken";
+
   useEffect(() => {
     (async () => {
+      if (isNativeApp()) {
+        try {
+          const { PushNotifications } = await import("@capacitor/push-notifications");
+          const perm = await PushNotifications.checkPermissions();
+          setPushOn(perm.receive === "granted" && !!localStorage.getItem(APNS_TOKEN_KEY));
+        } catch {}
+        return;
+      }
       if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
       try {
         const reg = await navigator.serviceWorker.ready;
@@ -1983,7 +2000,63 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
     })();
   }, []);
 
+  const toggleNativePush = async () => {
+    setPushBusy(true);
+    try {
+      const { PushNotifications } = await import("@capacitor/push-notifications");
+      if (pushOn) {
+        const tok = localStorage.getItem(APNS_TOKEN_KEY);
+        if (tok && supabase) await supabase.from("push_subscriptions").delete().eq("endpoint", "apns:" + tok);
+        localStorage.removeItem(APNS_TOKEN_KEY);
+        setPushOn(false);
+        return;
+      }
+      const perm = await PushNotifications.requestPermissions();
+      if (perm.receive !== "granted") {
+        alert("Notifications are switched off for this app — turn them on in Settings → Notifications → Minto App.");
+        return;
+      }
+      await PushNotifications.removeAllListeners();
+      const token = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("timeout")), 15000);
+        PushNotifications.addListener("registration", (t) => {
+          clearTimeout(timer);
+          resolve(t.value);
+        });
+        PushNotifications.addListener("registrationError", (e) => {
+          clearTimeout(timer);
+          reject(new Error((e && e.error) || "registration failed"));
+        });
+        PushNotifications.register();
+      });
+      if (supabase && userEmail) {
+        await supabase.from("push_subscriptions").upsert(
+          {
+            user_email: userEmail,
+            me_name: me || "",
+            property: myProperty || null,
+            endpoint: "apns:" + token,
+            p256dh: "apns",
+            auth: "apns",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "endpoint" }
+        );
+      }
+      localStorage.setItem(APNS_TOKEN_KEY, token);
+      setPushOn(true);
+    } catch (e) {
+      alert("Couldn't change notification settings — try again.");
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
   const togglePush = async () => {
+    if (isNativeApp()) {
+      await toggleNativePush();
+      return;
+    }
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
       alert("Push notifications aren't supported on this browser/device.");
       return;
