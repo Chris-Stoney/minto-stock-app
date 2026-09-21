@@ -41,7 +41,7 @@ that loads the live site (`capacitor.config.json` → `server.url`). So:
 | Google Play enrolment | $25 | 🔲 you — status unconfirmed, check with Chris |
 | Apple Developer enrolment | $99/yr + D-U-N-S | ✅ done — active account |
 | iOS build + TestFlight pipeline | fastlane match + App Store Connect API key | ✅ workflow built (`ios.yml`) — needs the portal setup + secrets below before it can run |
-| App icon + splash screen | a logo image | 🔲 |
+| App icon + splash screen | a logo image | ✅ done — artwork in `assets/`, generated into every build |
 
 ### iOS setup still needed (portal steps only you/Chris can do, then secrets)
 
