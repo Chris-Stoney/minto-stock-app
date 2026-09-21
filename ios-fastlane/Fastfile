@@ -8,6 +8,12 @@ default_platform(:ios)
 platform :ios do
   desc "Build a signed release and upload it to TestFlight"
   lane :beta do
+    # On a CI machine this creates a throwaway keychain and makes it the
+    # default, so match can import the signing certificate and Xcode can use
+    # it without a password prompt. Without it the build sits forever waiting
+    # for someone to click "Allow" on a keychain dialog nobody can see.
+    setup_ci
+
     app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
       issuer_id: ENV["APP_STORE_CONNECT_API_ISSUER_ID"],
