@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Daily email alerts for Minto Farm Records.
+"""Daily email alerts for the Minto App.
 
 Reads the shared data straight from Supabase (service key), and emails a digest
 ONLY when there's something worth flagging:
@@ -19,7 +19,7 @@ import urllib.error
 SB_URL = os.environ["SB_URL"].rstrip("/")
 SB_KEY = os.environ["SB_KEY"]
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
-ALERT_FROM = os.environ.get("ALERT_FROM", "").strip() or "Minto Farm Records <onboarding@resend.dev>"
+ALERT_FROM = os.environ.get("ALERT_FROM", "").strip() or "Minto App <onboarding@resend.dev>"
 ALERT_TO = [e.strip() for e in os.environ.get("ALERT_TO", "").split(",") if e.strip()] or [
     "chris@mintopastoral.com.au",
     "gwen@mintopastoral.com.au",
@@ -71,7 +71,7 @@ if not whp and not pending:
 
 # Build the email
 parts = ["<div style=\"font-family:system-ui,Arial,sans-serif;color:#23281F;max-width:600px\">"]
-parts.append(f"<h2 style=\"color:#2F4A33\">Minto Farm Records — daily alerts</h2>")
+parts.append(f"<h2 style=\"color:#2F4A33\">Minto App — daily alerts</h2>")
 parts.append(f"<p style=\"color:#6a6f60\">{today}</p>")
 
 if whp:
