@@ -98,6 +98,31 @@ jobs:
           PLIST
           ls -l ios/App/App/App.entitlements
 
+      - name: Forward push registration from AppDelegate to the plugin
+        # Capacitor's iOS template doesn't include these two handlers, so Apple
+        # hands the device token to the app but the push plugin never hears about
+        # it (the app just waits, then times out). This is the snippet from the
+        # @capacitor/push-notifications setup docs, added just before the final }.
+        run: |
+          python3 - <<'PY'
+          p = "ios/App/App/AppDelegate.swift"
+          s = open(p).read().rstrip()
+          assert s.endswith("}"), "unexpected AppDelegate.swift shape"
+          add = '''
+              func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+                  NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+              }
+
+              func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+                  NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+              }
+          '''
+          s = s[:-1].rstrip() + "\n" + add + "\n}\n"
+          open(p, "w").write(s)
+          PY
+          grep -c "capacitorDidRegisterForRemoteNotifications" ios/App/App/AppDelegate.swift
+          tail -14 ios/App/App/AppDelegate.swift
+
       - name: Build and upload to TestFlight
         working-directory: ios
         env:
