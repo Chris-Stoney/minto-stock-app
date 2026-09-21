@@ -19,6 +19,14 @@ import crypto from "node:crypto";
 // rather than web-push. Needs three Netlify env vars: APNS_KEY_ID,
 // APNS_TEAM_ID and APNS_KEY_P8 (the .p8 file's contents, raw or base64).
 const APNS_TOPIC = "au.com.mintopastoral.farmrecords";
+
+// These logins are notified for every channel, not just General and their own
+// property. Override without a code change by setting PUSH_ALL_CHANNELS in
+// Netlify to a comma-separated list of emails.
+const ALL_CHANNEL_WATCHERS = (process.env.PUSH_ALL_CHANNELS || "gwen@mintopastoral.com.au,info@mintopastoral.com.au")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
 const isApns = (s) => (s.endpoint || "").startsWith("apns:");
 
 function apnsJwt(keyId, teamId, keyText) {
@@ -125,7 +133,11 @@ export const handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: "Could not load subscriptions" }) };
   }
   const subs = await subsRes.json();
-  const targets = subs.filter((s) => s.user_email !== senderEmail && (channel === "General" || s.property === channel));
+  const targets = subs.filter(
+    (s) =>
+      s.user_email !== senderEmail &&
+      (channel === "General" || s.property === channel || ALL_CHANNEL_WATCHERS.includes((s.user_email || "").toLowerCase()))
+  );
   const webTargets = targets.filter((s) => !isApns(s));
   const iosTargets = targets.filter(isApns);
 
