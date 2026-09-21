@@ -9,6 +9,7 @@ on:
     paths:
       - "src/**"
       - "public/**"
+      - "assets/**"
       - "package.json"
       - "capacitor.config.json"
       - "index.html"
@@ -32,6 +33,9 @@ jobs:
 
       - name: Add Android platform
         run: npx cap add android
+
+      - name: Generate app icon + splash screen
+        run: npx --yes @capacitor/assets@3.0.5 generate --android --iconBackgroundColor '#2F4A33' --splashBackgroundColor '#2F4A33' --splashBackgroundColorDark '#172319'
 
       - name: Sync Capacitor
         run: npx cap sync android
