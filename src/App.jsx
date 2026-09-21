@@ -2335,6 +2335,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const [sortMob, setSortMob] = useState(null); // the mob currently being drafted/sorted, or null
   const [sortRows, setSortRows] = useState([]);
   const [sortErr, setSortErr] = useState("");
+  const [openMaintId, setOpenMaintId] = useState(null);
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState(null); // { message, onYes }
   const [commentary, setCommentary] = useState({ prop: "", text: "", loading: false });
@@ -3066,6 +3067,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
 
   /* ---- save handlers ---- */
   const saveRecord = (typeKey, rec) => {
+    // Who first entered it — survives edits (the edit form is seeded from the
+    // full existing record, so this comes back through untouched).
+    if (!rec.loggedBy) rec.loggedBy = userEmail || "unknown";
     if (typeKey === "moves") {
       const mob = mobById(rec.mobId);
       rec.fromPaddock = mob?.paddock || "";
@@ -3574,6 +3578,17 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       } catch {}
       flash(reverses ? "Deleted — stock numbers restored" : "Deleted");
     });
+  };
+
+  // Records saved before loggedBy was stamped: fall back to the earliest audit
+  // entry for that record (skipping the one-time recovery, which was run by
+  // whoever pressed the button, not who did the job).
+  const loggedByFor = (typeKey, r) => {
+    if (r.loggedBy) return r.loggedBy;
+    const first = (data.audit || [])
+      .filter((a) => a.typeKey === typeKey && a.recordId === r.id && !/^Restored|Delete/.test(a.action || ""))
+      .sort((a, b) => a.ts - b.ts)[0];
+    return first?.user || "";
   };
 
   const editRecordFromLog = (typeKey, id) => {
@@ -5646,15 +5661,53 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               {byProp(data.maint).length === 0 && <div className="empty">Nothing logged yet.</div>}
               {byProp(data.maint).map((r) => {
                 const su = summarise("maint", r);
+                const open = openMaintId === r.id;
+                const asset = r.assetId ? (settings.assets || []).find((a) => a.id === r.assetId) : null;
+                const who = loggedByFor("maint", r);
+                const details = [
+                  ["Date", fmtDate(r.date)],
+                  ["Category", r.category],
+                  ["Asset type", r.assetType],
+                  ["Asset", asset?.name || r.asset],
+                  ["Meter reading", r.meterReading],
+                  ["Fault note", r.faultNote],
+                  ["Property", r.property],
+                  ["Property element", r.propertyElement],
+                  ["Location", r.locationText],
+                  ["Work done", r.work],
+                  ["Done by", r.doneBy],
+                  ["Cost", num(r.cost) ? "$" + num(r.cost).toLocaleString() : ""],
+                  ["Logged by", who || "Not recorded (logged before this was tracked)"],
+                  ["Logged at", r.createdAt ? new Date(r.createdAt).toLocaleString("en-AU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""],
+                ].filter(([, v]) => v !== undefined && v !== null && v !== "");
                 return (
-                  <div className="act-row" key={r.id}>
-                    <span className="act-dot" style={{ background: TAG.maint }} />
-                    <div className="act-body">
-                      <div className="act-title">{su.title}</div>
-                      <div className="act-sub">
-                        {fmtDate(r.date)} · {su.sub}
+                  <div key={r.id} style={{ borderBottom: "1px solid #F0EEE6" }}>
+                    <div className="act-row" style={{ cursor: "pointer", borderBottom: "none" }} onClick={() => setOpenMaintId(open ? null : r.id)}>
+                      <span className="act-dot" style={{ background: TAG.maint }} />
+                      <div className="act-body" style={{ flex: 1 }}>
+                        <div className="act-title">{su.title}</div>
+                        <div className="act-sub">
+                          {fmtDate(r.date)} · {su.sub}
+                          {who ? " · " + who.split("@")[0] : ""}
+                        </div>
                       </div>
+                      <span className="act-sub">{open ? "▲" : "▼"}</span>
                     </div>
+                    {open && (
+                      <div style={{ padding: "0 0 10px 20px" }}>
+                        {details.map(([k, v]) => (
+                          <div className="rain-row" key={k} style={{ gap: 12, alignItems: "flex-start" }}>
+                            <span style={{ color: "#6a6f60", flexShrink: 0 }}>{k}</span>
+                            <span style={{ textAlign: "right", whiteSpace: "pre-wrap" }}>{String(v)}</span>
+                          </div>
+                        ))}
+                        <div className="btn-row">
+                          <button className="btn primary sm" onClick={() => editRecordFromLog("maint", r.id)}>
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
