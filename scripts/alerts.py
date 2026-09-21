@@ -119,7 +119,13 @@ payload = {"from": ALERT_FROM, "to": ALERT_TO, "subject": subject, "html": html}
 req = urllib.request.Request(
     "https://api.resend.com/emails",
     data=json.dumps(payload).encode(),
-    headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+    headers={
+        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Content-Type": "application/json",
+        # Resend sits behind Cloudflare, which rejects the default Python-urllib
+        # user agent with a 403 "error code: 1010".
+        "User-Agent": "minto-app-alerts/1.0",
+    },
     method="POST",
 )
 try:
