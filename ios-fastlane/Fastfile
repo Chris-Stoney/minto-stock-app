@@ -50,22 +50,8 @@ platform :ios do
     set_info_plist_value(path: plist, key: "NSPhotoLibraryUsageDescription", value: "Choose photos to share in the team chat.")
     set_info_plist_value(path: plist, key: "ITSAppUsesNonExemptEncryption", value: false)
 
-    # Push notifications need the aps-environment entitlement. Capacitor's
-    # project has no entitlements file, so write one and attach it to the App
-    # target below. "production" is right for TestFlight and App Store builds.
-    File.write(
-      File.expand_path("App/App/App.entitlements"),
-      <<~PLIST
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-          <key>aps-environment</key>
-          <string>production</string>
-        </dict>
-        </plist>
-      PLIST
-    )
+    # The aps-environment entitlements file (App/App/App.entitlements) is written
+    # by the workflow before this runs; it is attached to the App target below.
 
     # Capacitor's project ships with automatic signing; the certificate and
     # profile come from match, so switch it to manual and point it at them.

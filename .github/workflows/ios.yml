@@ -81,6 +81,23 @@ jobs:
           mkdir -p ios/fastlane
           cp ios-fastlane/Fastfile ios-fastlane/Appfile ios/fastlane/
 
+      - name: Add push-notification entitlement
+        # Capacitor's project has no entitlements file. This is the aps-environment
+        # key Apple needs for push; the Fastfile attaches it to the App target.
+        # "production" is right for TestFlight and App Store builds.
+        run: |
+          cat > ios/App/App/App.entitlements <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>aps-environment</key>
+            <string>production</string>
+          </dict>
+          </plist>
+          PLIST
+          ls -l ios/App/App/App.entitlements
+
       - name: Build and upload to TestFlight
         working-directory: ios
         env:
