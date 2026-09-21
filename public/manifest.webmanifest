@@ -1,6 +1,6 @@
 {
-  "name": "Minto Farm Records",
-  "short_name": "Minto",
+  "name": "Minto App",
+  "short_name": "Minto App",
   "description": "Minto Pastoral farm records — mobile stock book",
   "start_url": "/",
   "scope": "/",

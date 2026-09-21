@@ -1,6 +1,6 @@
 {
   "appId": "au.com.mintopastoral.farmrecords",
-  "appName": "Minto Farm Records",
+  "appName": "Minto App",
   "webDir": "dist",
   "server": {
     "url": "https://app.mintopastoral.com.au",
