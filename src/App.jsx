@@ -2858,19 +2858,42 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   }, [data.mobs]);
   const reclassifyTotalMobs = (data.mobs || []).filter((m) => num(m.head) > 0).length;
   const reclassifyDoneMobs = reclassifyTotalMobs - reclassifyGroups.reduce((a, g) => a + g.mobs.length, 0);
-  const draftFor = (g) => reclassifyDrafts[g.key] || RECLASSIFY_MAP[g.classifyKey] || { breed: g.breed, cls: "", status: "", timing: "", other: "" };
+  // Tag (the year-cohort colour) is deliberately excluded from classifyKey —
+  // normally it's already correct and reclassifying is only about the
+  // breed/class/status naming. But a group can still be missing a tag, or
+  // (rarer) have the wrong one, so it's editable here too — just only when
+  // the group is a single tag value to start with. A group can bundle mobs
+  // of genuinely different ages together (same breed/class/status, different
+  // tags), and setting one tag for the whole group would silently overwrite
+  // the correct age on whichever mobs didn't share it.
+  const tagEditable = (g) => g.tags.length === 1;
+  const draftFor = (g) => {
+    const base = reclassifyDrafts[g.key] || RECLASSIFY_MAP[g.classifyKey] || { breed: g.breed, cls: "", status: "", timing: "", other: "" };
+    if (base.tag !== undefined) return base;
+    return { ...base, tag: tagEditable(g) ? (g.tags[0] === "—" ? "" : g.tags[0]) : "" };
+  };
   const setDraftField = (g, field, value) => {
     setReclassifyDrafts((d) => ({ ...d, [g.key]: { ...draftFor(g), [field]: value } }));
   };
   const saveReclassifyGroup = (g) => {
     const draft = draftFor(g);
     if (!draft.cls) return;
+    const canSetTag = tagEditable(g);
     const ids = new Set(g.mobs.map((m) => m.id));
     setAndSave(
       "mobs",
       data.mobs.map((m) =>
         ids.has(m.id)
-          ? { ...m, breed: draft.breed || "", cls: draft.cls, status: draft.status || "", timing: draft.timing || "", other: draft.other || "", reclassified: true }
+          ? {
+              ...m,
+              breed: draft.breed || "",
+              cls: draft.cls,
+              status: draft.status || "",
+              timing: draft.timing || "",
+              other: draft.other || "",
+              ...(canSetTag ? { tag: draft.tag || "" } : {}),
+              reclassified: true,
+            }
           : m
       )
     );
@@ -2880,7 +2903,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           "Edit mob",
           composeName(m) +
             " — reclassified: " +
-            [draft.breed, draft.cls, draft.status, draft.timing, draft.other].filter(Boolean).join(" · "),
+            [draft.breed, draft.cls, draft.status, draft.timing, draft.other, canSetTag ? draft.tag : ""].filter(Boolean).join(" · "),
           "mobs",
           m.id
         );
@@ -4569,6 +4592,27 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                       ))}
                     </select>
                   </div>
+                </div>
+                <div className="f-grid2">
+                  <div className="f-row">
+                    <label className="f-label">
+                      Tag <span className="opt">optional</span>
+                    </label>
+                    {tagEditable(g) ? (
+                      <select value={draft.tag || ""} onChange={(e) => setDraftField(g, "tag", e.target.value)}>
+                        <option value="">—</option>
+                        <option value="M/A">M/A</option>
+                        {(settings.tagColours || []).map((t) => (
+                          <option key={t}>{t}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <p className="note" style={{ margin: 0 }}>
+                        Mixed tags in this group ({g.tags.join(", ")}) — edit affected mobs individually via Edit mob.
+                      </p>
+                    )}
+                  </div>
+                  <div className="f-row" />
                 </div>
                 <div className="f-grid2">
                   <div className="f-row">
