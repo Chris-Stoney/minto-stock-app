@@ -1968,6 +1968,7 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
   const [busy, setBusy] = useState(false);
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [replyTo, setReplyTo] = useState(null); // the message being replied to, or null
   const fileRef = useRef(null);
   const textRef = useRef(null);
   const key = "mp2:chat:" + property;
@@ -2159,10 +2160,16 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
       reader.readAsDataURL(file);
     });
 
+  // A short snapshot of the quoted message, not just its id — so the quote
+  // still shows correctly even if the original is later deleted or (for a
+  // photo) its image isn't loaded on this device.
+  const replyPreviewText = (m) => (m.text ? m.text : m.photoKey ? "📷 Photo" : "");
+
   const send = async (photoDataUrl) => {
     if (!text.trim() && !photoDataUrl) return;
     setBusy(true);
     const msg = { id: uid(), author: me, text: text.trim(), ts: Date.now() };
+    if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: replyPreviewText(replyTo).slice(0, 140) };
     if (photoDataUrl) {
       msg.photoKey = "mp2:photo:" + msg.id;
       await saveKey(msg.photoKey, photoDataUrl);
@@ -2174,6 +2181,7 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
     await saveKey(key, next);
     setMsgs(next);
     setText("");
+    setReplyTo(null);
     if (textRef.current) textRef.current.style.height = "auto";
     setBusy(false);
     // Fire-and-forget: a failed push shouldn't block sending the message itself.
@@ -2193,6 +2201,18 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
         });
       } catch {}
     })();
+  };
+
+  // Jumps to and briefly highlights a quoted message, if it's still in the
+  // (already-loaded) list — the quote itself keeps working via its own
+  // snapshot even when the original has scrolled out of the loaded window or
+  // been deleted, so this is a "nice to have", not a requirement.
+  const scrollToMsg = (id) => {
+    const el = document.getElementById("chat-msg-" + id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("chat-msg-flash");
+    setTimeout(() => el.classList.remove("chat-msg-flash"), 1200);
   };
 
   const deleteMsg = async (msgId) => {
@@ -2282,9 +2302,21 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
       <div className="chat-list">
         {msgs.length === 0 && <div className="empty big">No messages yet — say hello and start the {property === "General" ? "company" : property} chat.</div>}
         {[...msgs].reverse().map((m) => (
-          <div className={"chat-msg" + (m.author === me ? " mine" : "") + (m.system ? " system" : "")} key={m.id}>
+          <div className={"chat-msg" + (m.author === me ? " mine" : "") + (m.system ? " system" : "")} key={m.id} id={"chat-msg-" + m.id}>
             <div className="chat-meta">
               {m.author} · {fmtTs(m.ts)}
+              {!m.system && (
+                <button
+                  className="chat-reply-btn"
+                  onClick={() => {
+                    setReplyTo(m);
+                    textRef.current?.focus();
+                  }}
+                  title="Reply"
+                >
+                  ↩ Reply
+                </button>
+              )}
               {m.author === me && !m.system && (
                 <button
                   className="chat-del"
@@ -2294,6 +2326,11 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
                 </button>
               )}
             </div>
+            {m.replyTo && (
+              <div className="chat-quote" onClick={() => scrollToMsg(m.replyTo.id)}>
+                <b>{m.replyTo.author}</b>: {m.replyTo.text}
+              </div>
+            )}
             {m.photoKey && photos[m.photoKey] && <img className="chat-img" src={photos[m.photoKey]} alt="" />}
             {m.text && <div className="chat-text">{m.text}</div>}
             <div className="react-row">
@@ -2319,31 +2356,43 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
         ))}
       </div>
       <div className="chat-bar">
-        <button className="chat-photo-btn" disabled={busy} onClick={() => fileRef.current && fileRef.current.click()}>
-          📷
-        </button>
-        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onPickPhoto} />
-        <textarea
-          ref={textRef}
-          className="chat-input"
-          rows={1}
-          value={text}
-          placeholder={property === "General" ? "Message everyone…" : "Message " + property + "…"}
-          onChange={(e) => {
-            setText(e.target.value);
-            e.target.style.height = "auto";
-            e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !busy) {
-              e.preventDefault();
-              send();
-            }
-          }}
-        />
-        <button className="btn primary sm" disabled={busy} onClick={() => send()}>
-          {busy ? "…" : "Send"}
-        </button>
+        {replyTo && (
+          <div className="chat-reply-preview">
+            <div className="chat-reply-preview-text">
+              Replying to <b>{replyTo.author}</b>: {replyPreviewText(replyTo)}
+            </div>
+            <button className="chat-reply-cancel" onClick={() => setReplyTo(null)} title="Cancel reply">
+              ✕
+            </button>
+          </div>
+        )}
+        <div className="chat-bar-row">
+          <button className="chat-photo-btn" disabled={busy} onClick={() => fileRef.current && fileRef.current.click()}>
+            📷
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onPickPhoto} />
+          <textarea
+            ref={textRef}
+            className="chat-input"
+            rows={1}
+            value={text}
+            placeholder={property === "General" ? "Message everyone…" : "Message " + property + "…"}
+            onChange={(e) => {
+              setText(e.target.value);
+              e.target.style.height = "auto";
+              e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !busy) {
+                e.preventDefault();
+                send();
+              }
+            }}
+          />
+          <button className="btn primary sm" disabled={busy} onClick={() => send()}>
+            {busy ? "…" : "Send"}
+          </button>
+        </div>
       </div>
     </>
   );
@@ -7036,11 +7085,24 @@ function Style() {
     .chat-msg.mine { background: #EAF0EA; border-color: #BFD0BF; align-self: flex-end; }
     .chat-msg.system { background: #EEF0F7; border-color: #C6CCE3; align-self: stretch; max-width: 100%; }
     .chat-meta { font-size: 11.5px; color: #8B887A; font-weight: 600; margin-bottom: 3px; }
+    .chat-reply-btn {
+      background: none; border: none; color: #8B887A; font-size: 11.5px;
+      font-weight: 700; margin-left: 8px; padding: 0 2px; cursor: pointer;
+    }
+    .chat-reply-btn:hover { color: #2F4A33; }
     .chat-del {
       background: none; border: none; color: #8B887A; font-size: 12px;
       font-weight: 700; margin-left: 6px; padding: 0 2px; cursor: pointer;
     }
     .chat-del:hover { color: #B03A2E; }
+    .chat-quote {
+      background: #F2F0E8; border-left: 3px solid #C9C6B9; border-radius: 6px;
+      padding: 4px 8px; font-size: 12.5px; color: #55594d; margin-bottom: 5px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+    }
+    .chat-msg.mine .chat-quote { background: #DEE9DE; border-left-color: #9FB89F; }
+    .chat-msg-flash { animation: chat-msg-flash-kf 1.2s ease-out; }
+    @keyframes chat-msg-flash-kf { 0% { box-shadow: 0 0 0 2px #C9A227; } 100% { box-shadow: 0 0 0 0 transparent; } }
     .chat-text { font-size: 15px; white-space: pre-wrap; }
     .chat-img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; }
     .react-row { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; align-items: center; }
@@ -7055,10 +7117,24 @@ function Style() {
     .react-add:active { opacity: 1; }
     .chat-bar {
       position: fixed; bottom: 62px; left: 50%; transform: translateX(-50%);
-      width: 100%; max-width: 560px; display: flex; gap: 8px; align-items: flex-end;
+      width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 6px;
       background: #E9E7DF; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)/2);
       border-top: 1px solid #D9D6CB; z-index: 25;
     }
+    .chat-bar-row { display: flex; gap: 8px; align-items: flex-end; }
+    .chat-reply-preview {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      background: #FFFFFF; border: 1px solid #D9D6CB; border-left: 3px solid #2F4A33;
+      border-radius: 8px; padding: 6px 10px;
+    }
+    .chat-reply-preview-text {
+      font-size: 12.5px; color: #55594d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .chat-reply-cancel {
+      background: none; border: none; color: #8B887A; font-size: 13px;
+      font-weight: 700; padding: 0 2px; cursor: pointer; flex-shrink: 0;
+    }
+    .chat-reply-cancel:hover { color: #B03A2E; }
     .chat-input { flex: 1; resize: none; line-height: 1.35; max-height: 140px; overflow-y: auto; }
     .chat-photo-btn {
       background: #FFFFFF; border: 1px solid #C9C6B9; border-radius: 10px;
