@@ -2816,6 +2816,51 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     flash("Renamed to Green tag");
   };
 
+  // ONE-TIME: Buckanbe · White tag · Wether lambs (Jack's Hut / Mingara Pdk)
+  // was fully worked through on 14 Aug — 1,805 split off to Wygilla Pdk, 246
+  // sold to Wagga, 641 sold to JBS, 1,189 found mismustered — which nets
+  // exactly to the mob's starting 3,881, so it should read 0 today. Instead
+  // it's back to the full 3,881 with no record of why (the same baseline-
+  // wipe bug already identified for other mobs), and the Wygilla Pdk split
+  // destination doesn't exist at all. This zeroes the source and reinstates
+  // the missing 1,805 hd at Wygilla Pdk (merging into a matching mob there
+  // if one's since been added by hand). Delete this whole block once applied.
+  const WETHER_MOB_ID = "7yodf79mrn4whw6";
+  const wetherMob = (data.mobs || []).find((m) => m.id === WETHER_MOB_ID);
+  const needsWetherFix = wetherMob && num(wetherMob.head) !== 0;
+  const fixWetherLambs = () => {
+    const before = wetherMob;
+    const destIdx = data.mobs.findIndex(
+      (m) => m.id !== WETHER_MOB_ID && m.property === "Buckanbe" && m.paddock === "Wygilla Pdk" && composeName(m) === composeName(before)
+    );
+    let mobs = data.mobs.map((m) => (m.id === WETHER_MOB_ID ? { ...m, head: 0 } : m));
+    const destId = destIdx >= 0 ? mobs[destIdx].id : uid();
+    if (destIdx >= 0) {
+      mobs = mobs.map((m, i) => (i === destIdx ? { ...m, head: num(m.head) + 1805 } : m));
+    } else {
+      mobs = [{ ...before, id: destId, head: 1805, paddock: "Wygilla Pdk", createdAt: Date.now() }, ...mobs];
+    }
+    setAndSave("mobs", mobs);
+    try {
+      logAudit(
+        "Edit mob",
+        composeName(before) +
+          " — " +
+          before.property +
+          ` · ${num(before.head)} → 0 hd [14 Aug: 1805 split to Wygilla Pdk + 246 sold Wagga + 641 sold JBS + 1189 mismustered nets to 0 — head had been reset to the original count with no record of why]`,
+        "mobs",
+        WETHER_MOB_ID
+      );
+      logAudit(
+        "Edit mob",
+        composeName(before) + " — Buckanbe · Wygilla Pdk · +1805 hd [reinstating the 14 Aug split that no longer existed]",
+        "mobs",
+        destId
+      );
+    } catch {}
+    flash("Corrected — 0 hd at Jack's Hut/Mingara Pdk, 1805 hd restored at Wygilla Pdk");
+  };
+
   // Reclassify screen: groups every not-yet-reclassified mob with head by
   // property, paddock and its old (species, breed, class, status)
   // combination — property/paddock has to be part of the grouping, not
@@ -6245,6 +6290,24 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 </p>
                 <button className="btn primary" onClick={() => ask("Set Black tag · Heifers (Billabong) to 0 head?", fixHeiferCount)}>
                   Correct to 0
+                </button>
+              </section>
+            )}
+            {needsWetherFix && (
+              <section className="card">
+                <div className="card-title">⚠ Register/paddock mismatch</div>
+                <p className="note">
+                  Buckanbe · White tag · Wether lambs (Jack's Hut / Mingara Pdk) shows {num(wetherMob.head)} hd. On 14
+                  Aug this mob was split — 1,805 hd to Wygilla Pdk — with 246 sold to Wagga and 641 to JBS, and 1,189
+                  found mismustered — which nets exactly to 0, but the head was reset to the original count
+                  afterwards with nothing recording why, and the Wygilla Pdk split no longer exists either. This sets
+                  the source to 0 and reinstates the missing 1,805 hd at Wygilla Pdk.
+                </p>
+                <button
+                  className="btn primary"
+                  onClick={() => ask("Set Jack's Hut/Mingara Pdk to 0 hd and restore 1805 hd at Wygilla Pdk?", fixWetherLambs)}
+                >
+                  Correct it
                 </button>
               </section>
             )}
