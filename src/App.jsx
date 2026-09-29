@@ -2861,6 +2861,65 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     flash("Corrected — 0 hd at Jack's Hut/Mingara Pdk, 1805 hd restored at Wygilla Pdk");
   };
 
+  // ONE-TIME: Buckanbe · Dorper · White tag · Ewe lambs · Empty (Wygilla Pdk)
+  // — a different flavour of the same baseline-wipe bug. On 19 Aug two mobs
+  // at Wygilla Pdk (1,805 + 1,287 hd, both freshly classified Dorper/White
+  // tag/Empty the day before) were combined into one via "Combine mobs",
+  // landing 3,092 hd on id s24k4vrmss735yg and deleting the 1,287 hd mob
+  // (id nvdfb1jms2kh4yh). The wipe erased the combined mob entirely (it
+  // postdates the 3 Aug baseline) and separately resurrected the deleted
+  // 1,287 hd one at its pre-combine, pre-classification state — so today
+  // there's a stray 1,287 hd "Ewe lambs" sitting at Wygilla Pdk and no 3,092
+  // hd mob at all. Restores the combined mob under its original id and
+  // folds the resurrected duplicate's head back in so it isn't double
+  // counted. Delete this whole block once applied.
+  const EWE_LAMBS_KEEP_ID = "s24k4vrmss735yg";
+  const EWE_LAMBS_GHOST_ID = "nvdfb1jms2kh4yh";
+  const eweLambsGhost = (data.mobs || []).find((m) => m.id === EWE_LAMBS_GHOST_ID);
+  const needsEweLambsFix =
+    eweLambsGhost && num(eweLambsGhost.head) !== 0 && !(data.mobs || []).some((m) => m.id === EWE_LAMBS_KEEP_ID);
+  const fixEweLambs = () => {
+    const ghost = eweLambsGhost;
+    let mobs = data.mobs.map((m) => (m.id === EWE_LAMBS_GHOST_ID ? { ...m, head: 0 } : m));
+    mobs = [
+      {
+        id: EWE_LAMBS_KEEP_ID,
+        property: "Buckanbe",
+        paddock: "Wygilla Pdk",
+        species: "Sheep",
+        cls: "Ewe lambs",
+        status: "Empty",
+        breed: "Dorper",
+        tag: "White tag",
+        origin: "",
+        name: "",
+        notes: "",
+        head: 3092,
+        createdAt: Date.now(),
+      },
+      ...mobs,
+    ];
+    setAndSave("mobs", mobs);
+    try {
+      logAudit(
+        "Edit mob",
+        `Dorper · White tag · Ewe lambs · Empty — Buckanbe · Wygilla Pdk · restored to 3092 hd [19 Aug combine of 1805 + 1287 hd, reverted by the baseline-wipe bug]`,
+        "mobs",
+        EWE_LAMBS_KEEP_ID
+      );
+      logAudit(
+        "Edit mob",
+        composeName(ghost) +
+          " — " +
+          ghost.property +
+          ` · ${num(ghost.head)} → 0 hd [this was the 1287 hd absorbed into the 19 Aug combine, reappeared as a duplicate when the wipe rolled it back to its pre-combine state — folded back into the restored combined mob]`,
+        "mobs",
+        EWE_LAMBS_GHOST_ID
+      );
+    } catch {}
+    flash("Corrected — 3092 hd restored at Wygilla Pdk, duplicate folded in");
+  };
+
   // Reclassify screen: groups every not-yet-reclassified mob with head by
   // property, paddock and its old (species, breed, class, status)
   // combination — property/paddock has to be part of the grouping, not
@@ -6306,6 +6365,23 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 <button
                   className="btn primary"
                   onClick={() => ask("Set Jack's Hut/Mingara Pdk to 0 hd and restore 1805 hd at Wygilla Pdk?", fixWetherLambs)}
+                >
+                  Correct it
+                </button>
+              </section>
+            )}
+            {needsEweLambsFix && (
+              <section className="card">
+                <div className="card-title">⚠ Register/paddock mismatch</div>
+                <p className="note">
+                  Buckanbe · Wygilla Pdk shows a stray {num(eweLambsGhost.head)} hd Ewe lambs mob and no 3,092 hd
+                  Dorper · White tag · Ewe lambs · Empty mob at all. On 19 Aug those two Wygilla Pdk mobs (1,805 +
+                  1,287 hd) were combined into one — this restores the combined 3,092 hd mob and folds the stray
+                  1,287 hd back into it so it isn't counted twice.
+                </p>
+                <button
+                  className="btn primary"
+                  onClick={() => ask("Restore the combined 3092 hd Ewe lambs mob at Wygilla Pdk?", fixEweLambs)}
                 >
                   Correct it
                 </button>
