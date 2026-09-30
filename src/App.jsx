@@ -1168,6 +1168,10 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
   const cfg = RECORD_TYPES[typeKey];
   const mobsetField = cfg.fields.find((f) => f.type === "mobset");
   const propertysetField = cfg.fields.find((f) => f.type === "propertyset");
+  // Freeform "add a name not in Team" box for any teamset field — a visitor,
+  // contractor, or new starter not set up in Setup yet. Only one teamset
+  // field exists per record type today, so one draft slot is enough.
+  const [newTeamsetName, setNewTeamsetName] = useState("");
   const [vals, setVals] = useState(() => {
     const init = { date: todayStr(), ...(defaults || {}) };
     // Existing records (and any old caller still passing the pre-mobset
@@ -1396,29 +1400,60 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
         ) : f.type === "teamset" ? (
           // Unlike mobset/propertyset, this never splits into multiple saved
           // records — attendees are just a list on the one record, same in
-          // both new-entry and edit mode.
-          <div className="f-row" key={f.key}>
-            <label className="f-label">{f.label}</label>
-            <div className="loads-box">
-              {(teamNames || []).length === 0 && <div className="empty">No team members set up yet — add them in Setup → Team.</div>}
-              {(teamNames || []).map((n) => {
-                const names = vals[f.key] || [];
-                const on = names.includes(n);
-                return (
-                  <div className="load-row" key={n}>
-                    <label className="load-label">
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        onChange={() => set(f.key, on ? names.filter((x) => x !== n) : [...names, n])}
-                      />
-                      <span>{n}</span>
-                    </label>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          // both new-entry and edit mode. The tick-list is Team plus whoever's
+          // already been added by name below, so a freeform addition (a
+          // visitor, contractor, or new starter not in Team yet) still shows
+          // up as its own row rather than only existing as an invisible
+          // entry in the saved array.
+          (() => {
+            const names = vals[f.key] || [];
+            const options = [...(teamNames || []), ...names.filter((n) => !(teamNames || []).includes(n))];
+            const addName = () => {
+              const n = newTeamsetName.trim();
+              if (!n || names.includes(n)) return;
+              set(f.key, [...names, n]);
+              setNewTeamsetName("");
+            };
+            return (
+              <div className="f-row" key={f.key}>
+                <label className="f-label">{f.label}</label>
+                <div className="loads-box">
+                  {options.length === 0 && <div className="empty">Nobody added yet.</div>}
+                  {options.map((n) => {
+                    const on = names.includes(n);
+                    return (
+                      <div className="load-row" key={n}>
+                        <label className="load-label">
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={() => set(f.key, on ? names.filter((x) => x !== n) : [...names, n])}
+                          />
+                          <span>{n}</span>
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="prop-adder">
+                  <input
+                    value={newTeamsetName}
+                    placeholder="Add someone not listed…"
+                    onChange={(e) => setNewTeamsetName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addName();
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn ghost sm" onClick={addName}>
+                    Add
+                  </button>
+                </div>
+              </div>
+            );
+          })()
         ) : (
         <Field
           key={f.key}
