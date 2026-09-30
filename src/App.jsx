@@ -17,6 +17,7 @@ const KEYS = {
   maint: "mp2:maint",
   pasture: "mp2:pasture",
   paddockTreatment: "mp2:paddockTreatment",
+  toolboxTalk: "mp2:toolboxTalk",
   adjust: "mp2:adjust",
   orders: "mp2:orders",
   musters: "mp2:musters",
@@ -597,6 +598,7 @@ const TAG = {
   menu: "#B0743A",
   calendar: "#C25E1F",
   spendRequest: "#2E7F8F",
+  toolboxTalk: "#455A64",
 };
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -1007,6 +1009,23 @@ const RECORD_TYPES = {
       { key: "notes", label: "Notes", type: "textarea", optional: true },
     ],
   },
+  // First of an OHS series (toolbox talks now, other safety forms/SOPs to
+  // follow) — kept as its own plain record type for now rather than building
+  // a shared "OHS" grouping ahead of having a second one to generalise from.
+  toolboxTalk: {
+    label: "Toolbox talks",
+    single: "Toolbox talk",
+    tag: TAG.toolboxTalk,
+    fields: [
+      { key: "date", label: "Date", type: "date" },
+      { key: "property", label: "Property", type: "property" },
+      { key: "topic", label: "Topic / hazard discussed", type: "text" },
+      { key: "conductedBy", label: "Conducted by", type: "team" },
+      { key: "attendees", label: "Attendees", type: "teamset", optional: true },
+      { key: "actions", label: "Actions raised / follow-up", type: "textarea", optional: true },
+      { key: "notes", label: "Notes", type: "textarea", optional: true },
+    ],
+  },
 };
 
 // Audit entries older than when recordId/typeKey tracking was added to logAudit
@@ -1368,6 +1387,32 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
                         onChange={() => set(f.key, on ? ids.filter((id) => id !== p) : [...ids, p])}
                       />
                       <span>{p}</span>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : f.type === "teamset" ? (
+          // Unlike mobset/propertyset, this never splits into multiple saved
+          // records — attendees are just a list on the one record, same in
+          // both new-entry and edit mode.
+          <div className="f-row" key={f.key}>
+            <label className="f-label">{f.label}</label>
+            <div className="loads-box">
+              {(teamNames || []).length === 0 && <div className="empty">No team members set up yet — add them in Setup → Team.</div>}
+              {(teamNames || []).map((n) => {
+                const names = vals[f.key] || [];
+                const on = names.includes(n);
+                return (
+                  <div className="load-row" key={n}>
+                    <label className="load-label">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => set(f.key, on ? names.filter((x) => x !== n) : [...names, n])}
+                      />
+                      <span>{n}</span>
                     </label>
                   </div>
                 );
@@ -2447,6 +2492,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     maint: [],
     pasture: [],
     paddockTreatment: [],
+    toolboxTalk: [],
     adjust: [],
     orders: [],
     musters: [],
@@ -2567,6 +2613,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       // that array (and its two matching destructuring lists) by hand is
       // exactly the kind of place a silent off-by-one bug hides.
       const paddockTreatmentData = raced === "__SLOW__" ? [] : await loadKey(KEYS.paddockTreatment, []);
+      const toolboxTalkData = raced === "__SLOW__" ? [] : await loadKey(KEYS.toolboxTalk, []);
       setData({
         mobs: fromBaseline(mobs, "mobs"),
         moves: fromBaseline(moves, "moves"),
@@ -2590,6 +2637,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         audit: auditData,
         dismissedLost: dismissedLostData,
         paddockTreatment: paddockTreatmentData,
+        toolboxTalk: toolboxTalkData,
       });
       setSettings({
         properties: st?.properties || DEFAULT_PROPERTIES,
@@ -2630,7 +2678,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   useEffect(() => {
     if (!loaded) return;
     const keys = [
-      "mobs", "moves", "health", "rain", "trucking", "maint", "pasture", "paddockTreatment", "adjust",
+      "mobs", "moves", "health", "rain", "trucking", "maint", "pasture", "paddockTreatment", "toolboxTalk", "adjust",
       "orders", "musters", "menu", "marking", "weaning", "pregtest", "pdkuse",
       "shearing", "woolsale", "calendar", "spendRequest", "audit", "dismissedLost",
     ];
@@ -3939,7 +3987,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const activity = useMemo(() => {
     const cutoff = Date.now() - 3 * 86400000; // last 3 days, then it expires
     const all = [];
-    ["moves", "health", "rain", "trucking", "maint", "pasture", "paddockTreatment", "adjust", "orders", "musters", "menu", "calendar", "spendRequest", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
+    ["moves", "health", "rain", "trucking", "maint", "pasture", "paddockTreatment", "toolboxTalk", "adjust", "orders", "musters", "menu", "calendar", "spendRequest", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
       byProp(data[k]).forEach((r) => {
         if ((r.createdAt || 0) >= cutoff) all.push({ ...r, _type: k });
       })
@@ -4075,6 +4123,13 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             r.appliedBy,
             r.cost ? "$" + num(r.cost).toLocaleString() : "",
           ]
+            .filter(Boolean)
+            .join(" · "),
+        };
+      case "toolboxTalk":
+        return {
+          title: r.topic || "Toolbox talk",
+          sub: [r.property, r.conductedBy ? "Led by " + r.conductedBy : "", (r.attendees || []).length ? (r.attendees || []).length + " attended" : ""]
             .filter(Boolean)
             .join(" · "),
         };
@@ -6898,6 +6953,7 @@ function QuickAdd({ onPick }) {
     ["orders", "Purchase order"],
     ["pasture", "Pasture"],
     ["paddockTreatment", "Paddock treatment"],
+    ["toolboxTalk", "Toolbox talk"],
     ["mob", "New mob"],
   ];
   return (
