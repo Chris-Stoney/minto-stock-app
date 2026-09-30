@@ -482,7 +482,7 @@ const NEW_CLASSES = {
 };
 const NEW_STATUSES = {
   Cattle: ["CAF", "PTE", "PTIC", "Store", "Trading", "Weaner"],
-  Sheep: ["Backgrounding", "Dry", "LAF", "SIL", "Trading", "Wet"],
+  Sheep: ["Backgrounding", "Dry", "Joined", "LAF", "Lambing", "SIL", "Terminal", "Trading", "Wet"],
 };
 const NEW_TIMINGS = {
   Cattle: ["PTIC-Early", "PTIC-Late"],
@@ -502,6 +502,10 @@ const NEW_CLASS_DSE = {
   Sheep: {
     "Ewe|": 3, "Ewe|LAF": 3, "Ewe|Dry": 1, "Ewe|Wet": 3,
     "Ewe lamb|": 1.2, "Wether lamb|": 1.2, "Ram|": 2, "Ram lamb|": 1.2, "M/S|": 1.2,
+    // Estimated by analogy with the nearest existing status (Joined ~ Dry,
+    // Lambing ~ Wet, Terminal ~ Dry) — not separately confirmed like the
+    // rest of this table. Flag to the user and correct here if wrong.
+    "Ewe|Joined": 1, "Ewe|Lambing": 3, "Ewe|Terminal": 1,
   },
 };
 
@@ -3102,6 +3106,24 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       return next;
     });
     flash(`Reclassified ${g.mobs.length} mob${g.mobs.length === 1 ? "" : "s"}`);
+  };
+
+  // Redo pass now that the stocktake/reconciliation has caught up most
+  // properties — clears the reclassified flag so already-done mobs go back
+  // into the group list to review again (their Breed/Class/Status stay as
+  // last set; only the flag resets, nothing is guessed away). Magenta is
+  // deliberately left alone since its stocktake is still in progress.
+  const resetReclassifyExceptMagenta = () => {
+    const affected = (data.mobs || []).filter((m) => m.property !== "Magenta" && m.reclassified);
+    setAndSave(
+      "mobs",
+      data.mobs.map((m) => (m.property !== "Magenta" && m.reclassified ? { ...m, reclassified: false } : m))
+    );
+    setReclassifyDrafts({});
+    try {
+      logAudit("Edit mob", `Reclassification reset for redo — ${affected.length} mob(s), all properties except Magenta`, "mobs");
+    } catch {}
+    flash(`Reset — ${affected.length} mob${affected.length === 1 ? "" : "s"} back in the reclassify queue`);
   };
 
   // Mustering: bring a mob in to the Yards (Inbox) to sort, then draft it
@@ -6490,7 +6512,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 </button>
               </section>
             )}
-            {reclassifyGroups.length > 0 && (
+            {(reclassifyGroups.length > 0 || reclassifyDoneMobs > 0) && (
               <section className="card">
                 <div className="card-title">Reclassify stock</div>
                 <p className="note">
@@ -6499,9 +6521,28 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   go group by group, review the proposed values, adjust, save. Nothing changes until you save
                   that group.
                 </p>
-                <button className="btn primary" onClick={() => setReclassifyOpen(true)}>
-                  Open ({reclassifyGroups.length} group{reclassifyGroups.length === 1 ? "" : "s"} left)
-                </button>
+                <div className="btn-row" style={{ justifyContent: "flex-start" }}>
+                  {reclassifyGroups.length > 0 ? (
+                    <button className="btn primary" onClick={() => setReclassifyOpen(true)}>
+                      Open ({reclassifyGroups.length} group{reclassifyGroups.length === 1 ? "" : "s"} left)
+                    </button>
+                  ) : (
+                    <span className="note" style={{ margin: 0 }}>
+                      Every mob with head has been reclassified.
+                    </span>
+                  )}
+                  <button
+                    className="btn ghost sm"
+                    onClick={() =>
+                      ask(
+                        "Reset reclassification for every property except Magenta, so already-done mobs go back into the queue to review again? Their current Breed/Class/Status stay as last set — only the flag resets.",
+                        resetReclassifyExceptMagenta
+                      )
+                    }
+                  >
+                    Redo all (except Magenta)
+                  </button>
+                </div>
               </section>
             )}
             <section className="card">
