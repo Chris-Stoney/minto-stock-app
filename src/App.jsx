@@ -123,8 +123,26 @@ const CLASS_GROUP = {
   Fattening: "Young sheep",
   Backgrounding: "Young sheep",
   Rams: "Rams",
+  // New Sept 2026 scheme classes — kept in the same flat table as the old
+  // ones above (harmless once every mob's reclassified and the old names
+  // stop appearing) except "M/S", which both species use for the same
+  // string, so it's handled separately in groupFor below instead.
+  Cow: "Cows",
+  Heifer: "Young cattle",
+  Steer: "Young cattle",
+  Calf: "Calves at foot",
+  Bull: "Bulls",
+  Stag: "Bulls",
+  Ewe: "Ewes",
+  "Ewe lamb": "Young sheep",
+  "Wether lamb": "Young sheep",
+  "Ram lamb": "Young sheep",
+  Ram: "Rams",
 };
-const groupFor = (m) => CLASS_GROUP[m.cls] || (m.species === "Cattle" ? "Other cattle" : "Other sheep");
+const groupFor = (m) =>
+  m.cls === "M/S"
+    ? m.species === "Cattle" ? "Young cattle" : "Young sheep"
+    : CLASS_GROUP[m.cls] || (m.species === "Cattle" ? "Other cattle" : "Other sheep");
 
 const BUILD = 78;
 const PREVIEW = false; // LIVE: records persist
@@ -3124,6 +3142,32 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       logAudit("Edit mob", `Reclassification reset for redo — ${affected.length} mob(s), all properties except Magenta`, "mobs");
     } catch {}
     flash(`Reset — ${affected.length} mob${affected.length === 1 ? "" : "s"} back in the reclassify queue`);
+  };
+
+  // Cuts New/Edit mob and Sort over to the new Species → Breed → Class →
+  // Status scheme, confirmed with the user once reclassification was far
+  // enough along (everything except Magenta, whose stocktake is still
+  // running). Both forms already read Class/Status from settings.classes/
+  // statuses and Breed from settings.breeds, so this only needs to replace
+  // the saved list content — no form code changes. settings.breeds is a
+  // flat list (used the same regardless of species), unlike NEW_BREEDS, so
+  // it's flattened here rather than restructuring the form.
+  const classSchemeSwitched =
+    JSON.stringify(settings.classes) === JSON.stringify(NEW_CLASSES) &&
+    JSON.stringify(settings.statuses) === JSON.stringify(NEW_STATUSES);
+  const switchToNewClassScheme = () => {
+    const next = {
+      ...settings,
+      classes: NEW_CLASSES,
+      statuses: NEW_STATUSES,
+      breeds: [...NEW_BREEDS.Cattle, ...NEW_BREEDS.Sheep],
+    };
+    setSettings(next);
+    saveKey(KEYS.settings, next);
+    try {
+      logAudit("Edit settings", "Switched New/Edit mob + Sort to the new Species/Breed/Class/Status/Timing/Other scheme", "settings");
+    } catch {}
+    flash("Switched — New/Edit mob and Sort now use the new classification scheme");
   };
 
   // Mustering: bring a mob in to the Yards (Inbox) to sort, then draft it
@@ -6543,6 +6587,28 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                     Redo all (except Magenta)
                   </button>
                 </div>
+              </section>
+            )}
+            {!classSchemeSwitched && (
+              <section className="card">
+                <div className="card-title">Switch to the new classification scheme</div>
+                <p className="note">
+                  Once reclassifying is far enough along, this cuts New/Edit mob and Sort over to the new
+                  Species → Breed → Class → Status → Timing → Other scheme — same lists the Reclassify screen
+                  already uses. Magenta's mobs keep their old classification until they're reclassified too; the
+                  Class dropdown will look unset for those until then, but saving them is unaffected.
+                </p>
+                <button
+                  className="btn primary"
+                  onClick={() =>
+                    ask(
+                      "Switch New/Edit mob and Sort to the new classification scheme now? Existing mobs are untouched — this only changes what the dropdowns offer going forward.",
+                      switchToNewClassScheme
+                    )
+                  }
+                >
+                  Switch now
+                </button>
               </section>
             )}
             <section className="card">
