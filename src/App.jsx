@@ -2454,6 +2454,18 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
                 )
               )}
             </div>
+            {Object.keys(m.reactions || {}).length > 0 && (
+              // Names shown as text rather than only in the pill's hover
+              // tooltip, which never appears on a phone. "Name — Location"
+              // is trimmed to just the name to keep the line short.
+              <div className="react-who">
+                {Object.entries(m.reactions || {}).map(([em, who]) => (
+                  <span key={em}>
+                    {em} {who.map((w) => w.split(" — ")[0]).join(", ")}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -7496,6 +7508,7 @@ function Style() {
       background: none; border: none; font-size: 13px; opacity: 0.35; padding: 2px 3px;
     }
     .react-add:active { opacity: 1; }
+    .react-who { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 3px; font-size: 11.5px; color: #8B887A; font-weight: 600; }
     .chat-bar {
       position: fixed; bottom: 62px; left: 50%; transform: translateX(-50%);
       width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 6px;
