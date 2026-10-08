@@ -46,7 +46,6 @@ const DEFAULT_TAGS = [
   "Purple tag",
   "Yellow tag",
   "Red tag",
-  "Sky blue tag",
   "Blue tag",
 ];
 const DEFAULT_TEAM = [
@@ -140,7 +139,7 @@ const CLASS_GROUP = {
   Ram: "Rams",
 };
 const groupFor = (m) =>
-  m.cls === "M/S"
+  m.cls === "M/S" || m.cls === "M/S Weaners"
     ? m.species === "Cattle" ? "Young cattle" : "Young sheep"
     : CLASS_GROUP[m.cls] || (m.species === "Cattle" ? "Other cattle" : "Other sheep");
 
@@ -492,16 +491,33 @@ const CLASS_DSE = {
 // this — it's already the existing tag colour field, unchanged by this.
 const NEW_BREEDS = {
   Cattle: ["Angus", "F1", "Hereford", "Other", "Stud Angus"],
-  Sheep: ["Dorper", "Dorset", "Merino", "Stud Ultra White", "Ultra White", "X-bred"],
+  Sheep: ["Dorper", "Dorset", "Merino", "Stud Ultra White", "Ultra White", "X-Bred", "Other"],
 };
 const NEW_CLASSES = {
-  Cattle: ["Bull", "Calf", "Cow", "Heifer", "M/S", "Steer", "Stag"],
-  Sheep: ["Ewe", "Ewe lamb", "M/S", "Ram", "Ram lamb", "Wether lamb"],
+  Cattle: ["Bull", "Calf", "Cow", "Heifer", "M/S Weaners", "Stag", "Steer"],
+  Sheep: ["Ewe", "Ewe lamb", "M/S Weaners", "Ram", "Ram lamb", "Wether lamb"],
 };
 const NEW_STATUSES = {
-  Cattle: ["CAF", "PTE", "PTIC", "Store", "Trading", "Weaner"],
+  Cattle: ["CAF", "Joined", "PTE", "PTIC", "Store", "Trading", "Weaner"],
   Sheep: ["Backgrounding", "Dry", "Joined", "LAF", "Lambing", "SIL", "Terminal", "Trading", "Wet"],
 };
+// Step 8 of the 8 Oct 2026 classification flow: key dates per mob, which
+// show on the main Calendar. Same three stored fields for both species
+// (dueDate / testDate / sellDate) — only the label differs.
+const NEW_DATE_FIELDS = {
+  Cattle: [["dueDate", "Due"], ["testDate", "Preg Test"], ["sellDate", "Sell"]],
+  Sheep: [["dueDate", "Due to lamb"], ["testDate", "Scanned"], ["sellDate", "Sell"]],
+};
+const MOB_DATE_COLOR = { dueDate: "#5C8A4E", testDate: "#A85C7A", sellDate: "#7D4E9E" };
+// Breeding statuses on a class that doesn't breed is almost certainly a
+// slip — warned about, not blocked (a yearling heifer or ewe lamb can
+// legitimately be joined, so only the clearly non-breeding classes count).
+const BREEDING_STATUSES = ["CAF", "Joined", "PTE", "PTIC", "LAF", "Lambing", "SIL", "Wet"];
+const NON_BREEDING_CLASSES = ["Bull", "Stag", "Steer", "Ram", "Ram lamb", "Wether lamb", "Calf", "M/S Weaners"];
+const classStatusWarning = (cls, status) =>
+  NON_BREEDING_CLASSES.includes(cls) && BREEDING_STATUSES.includes(status)
+    ? `"${status}" is a breeding status — unusual for ${cls}.`
+    : "";
 const NEW_TIMINGS = {
   Cattle: ["PTIC-Early", "PTIC-Late"],
   Sheep: ["SIL-Early", "SIL-Late", "SIL-Late Late"],
@@ -515,15 +531,17 @@ const NEW_CLASS_DSE = {
   Cattle: {
     "Bull|": 8, "Calf|": 5, "Cow|": 10, "Cow|CAF": 10, "Cow|PTE": 10, "Cow|Store": 10,
     "Heifer|": 8, "Heifer|PTIC": 8, "Heifer|Store": 8,
-    "Steer|": 8, "Steer|Store": 8, "Stag|": 8, "M/S|Weaner": 6,
+    "Steer|": 8, "Steer|Store": 8, "Stag|": 8, "M/S Weaners|": 6, "M/S Weaners|Weaner": 6,
   },
   Sheep: {
     "Ewe|": 3, "Ewe|LAF": 3, "Ewe|Dry": 1, "Ewe|Wet": 3,
-    "Ewe lamb|": 1.2, "Wether lamb|": 1.2, "Ram|": 2, "Ram lamb|": 1.2, "M/S|": 1.2,
+    "Ewe lamb|": 1.2, "Wether lamb|": 1.2, "Ram|": 2, "Ram lamb|": 1.2, "M/S Weaners|": 1.2,
     // Estimated by analogy with the nearest existing status (Joined ~ Dry,
-    // Lambing ~ Wet, Terminal ~ Dry) — not separately confirmed like the
-    // rest of this table. Flag to the user and correct here if wrong.
-    "Ewe|Joined": 1, "Ewe|Lambing": 3, "Ewe|Terminal": 1,
+    // Lambing ~ Wet) — not separately confirmed like the rest of this
+    // table. Flag to the user and correct here if wrong. Any other status
+    // not listed (SIL, Trading, Backgrounding, cattle Joined…) uses its
+    // class's plain value — see dseFor.
+    "Ewe|Joined": 1, "Ewe|Lambing": 3,
   },
 };
 
@@ -552,7 +570,7 @@ const RECLASSIFY_MAP = {
   "Cattle|Angus|Heifers|Heifers": { breed: "Angus", cls: "Heifer", status: "", timing: "", other: "" },
   "Cattle|Angus|Steers|": { breed: "Angus", cls: "Steer", status: "", timing: "", other: "" },
   "Cattle|Angus|Steers|Stag": { breed: "Angus", cls: "Stag", status: "", timing: "", other: "" },
-  "Cattle|Angus|Weaner M/S|MS": { breed: "Angus", cls: "M/S", status: "Weaner", timing: "", other: "" },
+  "Cattle|Angus|Weaner M/S|MS": { breed: "Angus", cls: "M/S Weaners", status: "Weaner", timing: "", other: "" },
   "Cattle|F1|Calves|": { breed: "F1", cls: "Calf", status: "", timing: "", other: "" },
   "Cattle|F1|Cows & calves|": { breed: "F1", cls: "Cow", status: "CAF", timing: "", other: "" },
   "Cattle|F1|Cows|": { breed: "F1", cls: "Cow", status: "", timing: "", other: "" },
@@ -569,8 +587,8 @@ const RECLASSIFY_MAP = {
   "Sheep||Wether lambs|": { breed: "", cls: "Wether lamb", status: "", timing: "", other: "" },
   "Sheep|Dorper|Ewe lambs|": { breed: "Dorper", cls: "Ewe lamb", status: "", timing: "", other: "" },
   "Sheep|Dorper|Wether lambs|": { breed: "Dorper", cls: "Wether lamb", status: "", timing: "", other: "" },
-  "Sheep|Dorset|Lambs|": { breed: "Dorset", cls: "M/S", status: "", timing: "", other: "" },
-  "Sheep|Dorset|Lambs|MS": { breed: "Dorset", cls: "M/S", status: "", timing: "", other: "" },
+  "Sheep|Dorset|Lambs|": { breed: "Dorset", cls: "M/S Weaners", status: "", timing: "", other: "" },
+  "Sheep|Dorset|Lambs|MS": { breed: "Dorset", cls: "M/S Weaners", status: "", timing: "", other: "" },
   "Sheep|Dorset|Lambs|Rams": { breed: "Dorset", cls: "Ram lamb", status: "", timing: "", other: "" },
   "Sheep|Merino|Breeding ewes|": { breed: "Merino", cls: "Ewe", status: "", timing: "", other: "" },
   "Sheep|Merino|Breeding ewes|Late": { breed: "Merino", cls: "Ewe", status: "", timing: "SIL-Late", other: "" },
@@ -581,7 +599,7 @@ const RECLASSIFY_MAP = {
   "Sheep|Merino|Ewes & lambs|Early": { breed: "Merino", cls: "Ewe", status: "LAF", timing: "SIL-Early", other: "" },
   "Sheep|Merino|Ewes & lambs|Wet": { breed: "Merino", cls: "Ewe", status: "Wet", timing: "", other: "" },
   "Sheep|Merino|Ewes – twins|Early": { breed: "Merino", cls: "Ewe", status: "", timing: "SIL-Early", other: "Twins" },
-  "Sheep|Merino|Lambs|": { breed: "Merino", cls: "M/S", status: "", timing: "", other: "" },
+  "Sheep|Merino|Lambs|": { breed: "Merino", cls: "M/S Weaners", status: "", timing: "", other: "" },
   "Sheep|Merino|Lambs|Rams": { breed: "Merino", cls: "Ram lamb", status: "", timing: "", other: "" },
   "Sheep|Ultra|Rams|Rams": { breed: "Stud Ultra White", cls: "Ram", status: "", timing: "", other: "" },
   "Sheep|Ultra|Stud ultra ewe lambs|": { breed: "Stud Ultra White", cls: "Ewe lamb", status: "", timing: "", other: "" },
@@ -590,8 +608,11 @@ const RECLASSIFY_MAP = {
 
 const dseFor = (m) => {
   if (m.reclassified) {
-    const key = m.cls + "|" + (m.status || "");
-    const dse = (NEW_CLASS_DSE[m.species] || {})[key];
+    const table = NEW_CLASS_DSE[m.species] || {};
+    // Exact class+status first, then the class on its own — so a status with
+    // no figure of its own (SIL, Trading, Backgrounding…) counts as that
+    // class, instead of dropping to the generic per-species default.
+    const dse = table[m.cls + "|" + (m.status || "")] ?? table[m.cls + "|"];
     if (dse !== undefined) return dse;
   }
   return CLASS_DSE[m.cls] !== undefined ? CLASS_DSE[m.cls] : m.species === "Cattle" ? 8 : 1.5;
@@ -1641,6 +1662,28 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
         {sel("Class", "cls", classes?.[vals.species] || [], false)}
         {sel("Status", "status", settings.statuses?.[vals.species] || [])}
       </div>
+      {classStatusWarning(vals.cls, vals.status) && (
+        <p className="note" style={{ color: "#B03A2E", margin: "-4px 0 10px" }}>
+          {classStatusWarning(vals.cls, vals.status)}
+        </p>
+      )}
+      <div className="f-grid2">
+        {sel("Timing", "timing", NEW_TIMINGS[vals.species] || [])}
+        {vals.species === "Sheep" ? sel("Other", "other", NEW_OTHER) : <div className="f-row" />}
+      </div>
+      <div className="f-row">
+        <label className="f-label">
+          Key dates <span className="opt">optional — each one shows on the Calendar</span>
+        </label>
+        <div className="f-grid2">
+          {(NEW_DATE_FIELDS[vals.species] || []).map(([key, label]) => (
+            <div className="f-row" key={key}>
+              <label className="f-label">{label}</label>
+              <input type="date" value={vals[key] || ""} onChange={(e) => set(key, e.target.value)} />
+            </div>
+          ))}
+        </div>
+      </div>
       <div className="f-row">
         <label className="f-label">
           Origin (bought in from) <span className="opt">optional</span>
@@ -1950,6 +1993,26 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
           editable: false,
         });
     });
+    // Step 8 of the classification flow: each mob's key dates (Due / Preg
+    // Test or Scanned / Sell), set on the mob itself. Skips mobs with no head
+    // so a sold-down mob doesn't keep cluttering the calendar. Tapping Edit
+    // opens the mob (editRecordFromLog knows "mobs").
+    byProp(data.mobs)
+      .filter((m) => num(m.head) > 0)
+      .forEach((m) => {
+        (NEW_DATE_FIELDS[m.species] || []).forEach(([key, label]) => {
+          if (!m[key]) return;
+          add(m[key], {
+            type: "mobs",
+            label: label + " — " + composeName(m),
+            sub: [m.property, m.paddock && paddockLabel(m.paddock), num(m.head).toLocaleString() + " hd"].filter(Boolean).join(" · "),
+            color: MOB_DATE_COLOR[key],
+            propColor: colorForPerson(m.property),
+            rec: m,
+            editable: true,
+          });
+        });
+      });
     return map;
   }, [data, propFilter]);
 
@@ -3156,30 +3219,46 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     flash(`Reset — ${affected.length} mob${affected.length === 1 ? "" : "s"} back in the reclassify queue`);
   };
 
-  // Cuts New/Edit mob and Sort over to the new Species → Breed → Class →
-  // Status scheme, confirmed with the user once reclassification was far
-  // enough along (everything except Magenta, whose stocktake is still
-  // running). Both forms already read Class/Status from settings.classes/
-  // statuses and Breed from settings.breeds, so this only needs to replace
-  // the saved list content — no form code changes. settings.breeds is a
+  // Brings the app in line with the 8 Oct 2026 classification flow (PDF from
+  // the user). New/Edit mob and Sort already read Class/Status from
+  // settings.classes/statuses and Breed from settings.breeds, so this
+  // replaces those saved lists with the NEW_* ones — settings.breeds is a
   // flat list (used the same regardless of species), unlike NEW_BREEDS, so
-  // it's flattened here rather than restructuring the form.
-  const classSchemeSwitched =
+  // it's flattened. It also renames the data that no longer matches: class
+  // "M/S" became "M/S Weaners", breed "X-bred" became "X-Bred". Safe to
+  // press more than once; the card disappears when nothing's left to change.
+  const NEW_BREED_LIST = [...NEW_BREEDS.Cattle, ...NEW_BREEDS.Sheep];
+  const mobsToRename = (data.mobs || []).filter((m) => m.cls === "M/S" || m.breed === "X-bred");
+  const listsUpToDate =
     JSON.stringify(settings.classes) === JSON.stringify(NEW_CLASSES) &&
-    JSON.stringify(settings.statuses) === JSON.stringify(NEW_STATUSES);
-  const switchToNewClassScheme = () => {
-    const next = {
-      ...settings,
-      classes: NEW_CLASSES,
-      statuses: NEW_STATUSES,
-      breeds: [...NEW_BREEDS.Cattle, ...NEW_BREEDS.Sheep],
-    };
-    setSettings(next);
-    saveKey(KEYS.settings, next);
+    JSON.stringify(settings.statuses) === JSON.stringify(NEW_STATUSES) &&
+    JSON.stringify(settings.breeds) === JSON.stringify(NEW_BREED_LIST);
+  const needsClassUpdate = !listsUpToDate || mobsToRename.length > 0;
+  const applyClassUpdate = () => {
+    if (!listsUpToDate) {
+      const next = { ...settings, classes: NEW_CLASSES, statuses: NEW_STATUSES, breeds: NEW_BREED_LIST };
+      setSettings(next);
+      saveKey(KEYS.settings, next);
+    }
+    if (mobsToRename.length) {
+      const ids = new Set(mobsToRename.map((m) => m.id));
+      setAndSave(
+        "mobs",
+        data.mobs.map((m) =>
+          ids.has(m.id)
+            ? { ...m, cls: m.cls === "M/S" ? "M/S Weaners" : m.cls, breed: m.breed === "X-bred" ? "X-Bred" : m.breed }
+            : m
+        )
+      );
+    }
     try {
-      logAudit("Edit settings", "Switched New/Edit mob + Sort to the new Species/Breed/Class/Status/Timing/Other scheme", "settings");
+      logAudit(
+        "Edit settings",
+        `Updated to the 8 Oct classification flow — class/status/breed lists replaced, ${mobsToRename.length} mob(s) renamed (M/S → M/S Weaners, X-bred → X-Bred)`,
+        "settings"
+      );
     } catch {}
-    flash("Switched — New/Edit mob and Sort now use the new classification scheme");
+    flash(`Updated — ${mobsToRename.length} mob${mobsToRename.length === 1 ? "" : "s"} renamed, lists replaced`);
   };
 
   // Mustering: bring a mob in to the Yards (Inbox) to sort, then draft it
@@ -3245,7 +3324,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const auditEntries = [];
     rows.forEach((row) => {
       const moveHead = Math.round(num(row.head));
-      const overrides = { cls: row.cls, status: row.status || "" };
+      const overrides = {
+        cls: row.cls,
+        status: row.status || "",
+        // Picking a class from the new list counts as reclassified (see saveMob).
+        ...(!source.reclassified && (NEW_CLASSES[source.species] || []).includes(row.cls) ? { reclassified: true } : {}),
+      };
       const destName = composeName({ ...source, ...overrides });
       const destIdx = mobs.findIndex(
         (m) => m.id !== source.id && m.property === source.property && m.paddock === row.toPaddock && composeName(m) === destName
@@ -3841,7 +3925,14 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     flash("Saved");
   };
 
-  const saveMob = (mob) => {
+  const saveMob = (rawMob) => {
+    // A mob saved with a class from the new scheme counts as reclassified, so
+    // its DSE uses the new table and it doesn't reappear in the Reclassify
+    // queue. A not-yet-reclassified (old-scheme) mob keeps its flag as-is.
+    const mob =
+      !rawMob.reclassified && (NEW_CLASSES[rawMob.species] || []).includes(rawMob.cls)
+        ? { ...rawMob, reclassified: true }
+        : rawMob;
     const before = data.mobs.find((m) => m.id === mob.id);
     const exists = !!before;
     const mobs = exists ? data.mobs.map((m) => (m.id === mob.id ? mob : m)) : [mob, ...data.mobs];
@@ -4528,19 +4619,37 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         .filter((m) => m.property === prop && num(m.head) > 0)
         .forEach((m) => {
           const paddock = m.paddock && m.paddock !== INBOX ? m.paddock : "";
-          const key = paddock + "|" + m.species + "|" + (m.cls || "Unclassed") + "|" + (m.tag || "") + "|" + yearForTag(m.tag);
+          const key = [
+            paddock,
+            m.species,
+            m.cls || "Unclassed",
+            m.status || "",
+            m.timing || "",
+            m.other || "",
+            m.tag || "",
+            yearForTag(m.tag),
+            m.dueDate || "",
+            m.testDate || "",
+            m.sellDate || "",
+          ].join("|");
           byCls[key] = (byCls[key] || 0) + num(m.head);
         });
       Object.entries(byCls)
         .sort((a, b) => a[0].localeCompare(b[0]))
         .forEach(([key, head]) => {
-          const [paddock, species, cls, tag, year] = key.split("|");
-          rows.push({ property: prop, paddock, species, cls, tag, year, head });
+          const [paddock, species, cls, status, timing, other, tag, year, due, test, sell] = key.split("|");
+          rows.push({ property: prop, paddock, species, cls, status, timing, other, tag, year, due, test, sell, head });
         });
     });
-    const header = ["Property", "Paddock", "Species", "Class", "Tag colour", "Year", "Head"];
+    const header = ["Property", "Paddock", "Species", "Class", "Status", "Timing", "Other", "Tag colour", "Year", "Due", "Preg test / Scanned", "Sell", "Head"];
     const lines = [header.join(",")];
-    rows.forEach((r) => lines.push([r.property, r.paddock, r.species, r.cls, r.tag, r.year, r.head].map(esc).join(",")));
+    rows.forEach((r) =>
+      lines.push(
+        [r.property, r.paddock, r.species, r.cls, r.status, r.timing, r.other, r.tag, r.year, fmtDate(r.due), fmtDate(r.test), fmtDate(r.sell), r.head]
+          .map(esc)
+          .join(",")
+      )
+    );
     const csv = lines.join("\r\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -4648,6 +4757,20 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 {viewMob.cls ? " · " + viewMob.cls : ""}
               </span>
             </div>
+            {[viewMob.status, viewMob.timing, viewMob.other].some(Boolean) && (
+              <div className="rain-row">
+                <span>Status / timing</span>
+                <span className="rain-mm">{[viewMob.status, viewMob.timing, viewMob.other].filter(Boolean).join(" · ")}</span>
+              </div>
+            )}
+            {(NEW_DATE_FIELDS[viewMob.species] || [])
+              .filter(([key]) => viewMob[key])
+              .map(([key, label]) => (
+                <div className="rain-row" key={key}>
+                  <span>{label}</span>
+                  <span className="rain-mm">{fmtDate(viewMob[key])}</span>
+                </div>
+              ))}
             {viewMob.notes && (
               <div className="rain-row">
                 <span>Notes</span>
@@ -4770,6 +4893,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   </select>
                 </div>
               </div>
+              {classStatusWarning(row.cls, row.status) && (
+                <p className="note" style={{ color: "#B03A2E", margin: "0 0 8px" }}>
+                  {classStatusWarning(row.cls, row.status)}
+                </p>
+              )}
               {sortRows.length > 1 && (
                 <button className="btn ghost sm" onClick={() => removeSortRow(i)}>
                   Remove group
@@ -4886,6 +5014,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   </div>
                   <div className="f-row" />
                 </div>
+                {classStatusWarning(draft.cls, draft.status) && (
+                  <p className="note" style={{ color: "#B03A2E", margin: "0 0 8px" }}>
+                    {classStatusWarning(draft.cls, draft.status)}
+                  </p>
+                )}
                 <div className="f-grid2">
                   <div className="f-row">
                     <label className="f-label">
@@ -6601,25 +6734,26 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 </div>
               </section>
             )}
-            {!classSchemeSwitched && (
+            {needsClassUpdate && (
               <section className="card">
-                <div className="card-title">Switch to the new classification scheme</div>
+                <div className="card-title">Update to the 8 Oct classification</div>
                 <p className="note">
-                  Once reclassifying is far enough along, this cuts New/Edit mob and Sort over to the new
-                  Species → Breed → Class → Status → Timing → Other scheme — same lists the Reclassify screen
-                  already uses. Magenta's mobs keep their old classification until they're reclassified too; the
-                  Class dropdown will look unset for those until then, but saving them is unaffected.
+                  Replaces the Class, Status and Breed lists in New/Edit mob and Sort with the new scheme (cattle
+                  Joined added, sheep Other breed added, "M/S" → "M/S Weaners"), and renames the {mobsToRename.length}{" "}
+                  mob{mobsToRename.length === 1 ? "" : "s"} still using an old name. Nothing else about existing mobs
+                  changes. Magenta's mobs keep their old classification until they're reclassified; the Class
+                  dropdown will look unset for those until then, but saving them is unaffected.
                 </p>
                 <button
                   className="btn primary"
                   onClick={() =>
                     ask(
-                      "Switch New/Edit mob and Sort to the new classification scheme now? Existing mobs are untouched — this only changes what the dropdowns offer going forward.",
-                      switchToNewClassScheme
+                      "Update the class/status/breed lists to the 8 Oct classification and rename the mobs still on an old name?",
+                      applyClassUpdate
                     )
                   }
                 >
-                  Switch now
+                  Update now
                 </button>
               </section>
             )}
