@@ -893,7 +893,7 @@ const RECORD_TYPES = {
       { key: "endDate", label: "Ends on (optional — for events running over a few days)", type: "date", optional: true },
       { key: "time", label: "Time (optional — for a specific appointment)", type: "time", optional: true },
       { key: "title", label: "What's happening", type: "text" },
-      { key: "activityType", label: "Type", type: "select", options: ["Muster", "Maintenance", "Staff Away", "Other"], optional: true },
+      { key: "activityType", label: "Type", type: "select", options: ["Muster", "Maintenance", "Staff Away", "Annual leave", "Vehicle service", "Other"], optional: true },
       { key: "assignedTo", label: "Assigned to", type: "team", optional: true },
       { key: "property", label: "Property", type: "property", optional: true },
       { key: "notes", label: "Notes", type: "textarea", optional: true },
