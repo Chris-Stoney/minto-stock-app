@@ -4410,7 +4410,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const activity = useMemo(() => {
     const cutoff = Date.now() - 3 * 86400000; // last 3 days, then it expires
     const all = [];
-    ["moves", "health", "rain", "trucking", "maint", "pasture", "paddockTreatment", "toolboxTalk", "adjust", "orders", "musters", "menu", "calendar", "spendRequest", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
+    ["moves", "health", "rain", "trucking", "maint", "pasture", "paddockTreatment", "toolboxTalk", "adjust", "orders", "musters", "menu", "spendRequest", "marking", "weaning", "pregtest", "shearing", "woolsale"].forEach((k) =>
       byProp(data[k]).forEach((r) => {
         if ((r.createdAt || 0) >= cutoff) all.push({ ...r, _type: k });
       })
