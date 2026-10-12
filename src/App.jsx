@@ -1983,7 +1983,7 @@ const colorForPerson = (name) => {
 };
 const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 
-function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEvent }) {
+function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEvent, appleSync, onSyncApple }) {
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -1999,10 +1999,12 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
       (map[date] = map[date] || []).push(item);
     };
     byProp(data.musters).forEach((r) => add(r.date, { type: "musters", label: r.activity || "Muster", sub: r.property, color: TAG.musters, propColor: colorForPerson(r.property), rec: r, editable: true }));
-    byProp(data.calendar).forEach((r) => {
+    byProp(data.calendar).filter((r) => !r.appleHidden).forEach((r) => {
       const label = (r.time ? r.time + " — " : "") + (r.title || "Event") + (r.activityType ? " · " + r.activityType : "");
       const spansDays = r.endDate && r.endDate > r.date;
-      const sub = [r.property, r.assignedTo, spansDays ? fmtDate(r.date) + " – " + fmtDate(r.endDate) : ""].filter(Boolean).join(" · ");
+      const sub = [r.property, r.assignedTo, spansDays ? fmtDate(r.date) + " – " + fmtDate(r.endDate) : "", r.source === "apple" ? "Apple Calendar" : ""]
+        .filter(Boolean)
+        .join(" · ");
       const firstAssignee = (r.assignedTo || "").split(",")[0]?.trim();
       const color = colorForPerson(firstAssignee) || TAG.calendar;
       const propColor = colorForPerson(r.property);
@@ -2075,6 +2077,22 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
       <div className="section-head">
         <h2>Calendar</h2>
       </div>
+      {appleSync && appleSync.state !== "off" && appleSync.state !== "idle" && (
+        <div className="rain-row" style={{ marginBottom: 8, fontSize: 12.5, color: appleSync.state === "error" ? "#B03A2E" : "#6a6f60" }}>
+          <span>
+            {appleSync.state === "syncing"
+              ? "Syncing Apple Calendar…"
+              : appleSync.state === "error"
+              ? "Apple Calendar: " + appleSync.error
+              : `Apple Calendar synced · ${appleSync.count} event${appleSync.count === 1 ? "" : "s"} · ${
+                  Math.round((Date.now() - appleSync.at) / 60000) < 1 ? "just now" : Math.round((Date.now() - appleSync.at) / 60000) + " min ago"
+                }`}
+          </span>
+          <button className="mini-btn" disabled={appleSync.state === "syncing"} onClick={onSyncApple}>
+            Sync now
+          </button>
+        </div>
+      )}
       <section className="card">
         <div className="cal-nav">
           <button className="mini-btn" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>
@@ -2890,6 +2908,113 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       await saveKey(key, [...latest, msg].slice(-MAX_CHAT_MSGS));
     } catch {}
   };
+
+  // One-way Apple Calendar -> app import (see netlify/functions/apple-calendar.js).
+  // The function returns the shared calendar's events; this copies new ones
+  // onto the app calendar, updates the ones that moved or were renamed, and
+  // drops the ones deleted in Apple Calendar. Imported events carry
+  // source:"apple" + appleUid. Their id is derived from the Apple uid, so two
+  // devices syncing at once land on the same record instead of duplicating.
+  // Property / assignee / type set in the app are never overwritten.
+  const dataRef = useRef(null);
+  dataRef.current = data;
+  const appleSyncAt = useRef(0);
+  const [appleSync, setAppleSync] = useState({ state: "idle", at: 0, count: 0, error: "" });
+  const appleIdFor = (u) => {
+    const h = (s) => {
+      let x = 5381;
+      for (let i = 0; i < s.length; i++) x = ((x * 33) ^ s.charCodeAt(i)) >>> 0;
+      return x.toString(36);
+    };
+    return "ap" + h(u) + h([...u].reverse().join("")) + u.length.toString(36);
+  };
+  const syncAppleCalendar = async (force) => {
+    if (!supabase || PREVIEW) return;
+    if (!force && Date.now() - appleSyncAt.current < 5 * 60 * 1000) return;
+    appleSyncAt.current = Date.now();
+    setAppleSync((s) => ({ ...s, state: "syncing" }));
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) {
+        setAppleSync((s) => ({ ...s, state: "idle" }));
+        return;
+      }
+      const res = await fetch("/.netlify/functions/apple-calendar", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      if (res.status === 501 || res.status === 404) {
+        // Not set up (no link configured, or the function isn't deployed).
+        setAppleSync({ state: "off", at: Date.now(), count: 0, error: "" });
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "couldn't sync");
+      const events = body.events || [];
+      // Re-read after the network wait so an edit made meanwhile isn't lost.
+      const cur = dataRef.current.calendar || [];
+      const byUid = new Map(cur.filter((r) => r.appleUid).map((r) => [r.appleUid, r]));
+      const seen = new Set();
+      let next = [...cur];
+      let added = 0;
+      let updated = 0;
+      let removed = 0;
+      events.forEach((ev) => {
+        seen.add(ev.uid);
+        const ex = byUid.get(ev.uid);
+        if (!ex) {
+          next = [
+            {
+              id: appleIdFor(ev.uid),
+              createdAt: Date.now(),
+              source: "apple",
+              appleUid: ev.uid,
+              loggedBy: "Apple Calendar",
+              date: ev.date,
+              endDate: ev.endDate || "",
+              time: ev.time || "",
+              title: ev.title,
+              notes: ev.notes || "",
+            },
+            ...next,
+          ];
+          added++;
+        } else if (
+          ex.date !== ev.date ||
+          (ex.endDate || "") !== (ev.endDate || "") ||
+          (ex.time || "") !== (ev.time || "") ||
+          ex.title !== ev.title ||
+          (ex.notes || "") !== (ev.notes || "")
+        ) {
+          next = next.map((r) =>
+            r.id === ex.id ? { ...r, date: ev.date, endDate: ev.endDate || "", time: ev.time || "", title: ev.title, notes: ev.notes || "" } : r
+          );
+          updated++;
+        }
+      });
+      // Deleted in Apple Calendar -> gone here too, but only inside the window
+      // the function looked at, and never on an empty answer (which is more
+      // likely a bad response than someone clearing the whole calendar).
+      if (events.length > 0 && body.windowStart && body.windowEnd) {
+        const gone = next.filter((r) => r.appleUid && !seen.has(r.appleUid) && r.date >= body.windowStart && r.date <= body.windowEnd);
+        if (gone.length) {
+          const goneIds = new Set(gone.map((r) => r.id));
+          next = next.filter((r) => !goneIds.has(r.id));
+          removed = gone.length;
+        }
+      }
+      if (added || updated || removed) {
+        setAndSave("calendar", next);
+        try {
+          logAudit("Apple Calendar sync", `${added} new, ${updated} updated, ${removed} removed`);
+        } catch {}
+      }
+      setAppleSync({ state: "ok", at: Date.now(), count: events.length, error: "" });
+    } catch (e) {
+      setAppleSync({ state: "error", at: Date.now(), count: 0, error: (e && e.message) || "couldn't sync" });
+    }
+  };
+  useEffect(() => {
+    if (tab === "calendar" && loaded) syncAppleCalendar(false);
+    // eslint-disable-next-line
+  }, [tab, loaded]);
 
   // Fire-and-forget: notifies about a newly-created calendar event, scoped
   // the same way as chat (no property = everyone, a property = just that
@@ -4158,6 +4283,20 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const deleteRecord = (typeKey, id) => {
     const reverses = ["trucking", "adjust", "moves", "marking", "weaning", "pregtest"].includes(typeKey);
     const existing = (data[typeKey] || []).find((r) => r.id === id);
+    // An event imported from Apple Calendar still exists there, so removing
+    // the app's copy would just bring it back on the next sync. Hide it
+    // instead (the sync keeps updating it but it stays off the calendar, and
+    // it's dropped for good once it's deleted in Apple Calendar).
+    if (typeKey === "calendar" && existing?.appleUid) {
+      ask("Hide this event? It comes from Apple Calendar — delete it there as well to remove it for good.", () => {
+        setAndSave("calendar", data.calendar.map((r) => (r.id === id ? { ...r, appleHidden: true } : r)));
+        try {
+          logAudit("Delete", "Calendar event · " + (existing.title || "Event") + " (hidden — still in Apple Calendar)", "calendar", id);
+        } catch {}
+        flash("Hidden");
+      });
+      return;
+    }
     // Deleting a spend request never touches its linked PO — it may already be
     // approved/paid — so warn instead of silently leaving it disconnected.
     const message =
@@ -6391,6 +6530,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             onAddEvent={(date) => setActiveForm({ type: "calendar", defaults: { date } })}
             onEditItem={editRecordFromLog}
             onDeleteEvent={(id) => deleteRecordFromLog("calendar", id)}
+            appleSync={appleSync}
+            onSyncApple={() => syncAppleCalendar(true)}
           />
         )}
 
