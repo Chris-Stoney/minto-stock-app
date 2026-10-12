@@ -811,9 +811,16 @@ const RECORD_TYPES = {
       { key: "head", label: "Head", type: "number", showIf: (v) => v.ttype === "Purchase" },
       { key: "toProperty", label: "To property", type: "property", showIf: (v) => v.ttype === "Property transfer" || v.ttype === "Purchase" },
       { key: "destination", label: "Buyer / saleyard / processor", type: "text", showIf: (v) => v.ttype === "Sale to market" },
-      { key: "mobName", label: "New mob name", type: "text", showIf: (v) => v.ttype === "Purchase" },
+      // A purchase now captures the whole classification up front (breed, tag,
+      // status, where it came from) and can go straight to a paddock; leave
+      // the paddock blank and it lands in the property's Yards to allocate.
       { key: "species", label: "Species", type: "select", options: ["Cattle", "Sheep"], showIf: (v) => v.ttype === "Purchase" },
+      { key: "breed", label: "Breed", type: "select", optionsFrom: "breeds", optional: true, showIf: (v) => v.ttype === "Purchase" },
+      { key: "tag", label: "Tag colour (age)", type: "tag", optional: true, showIf: (v) => v.ttype === "Purchase" },
       { key: "cls", label: "Class", type: "class", showIf: (v) => v.ttype === "Purchase" },
+      { key: "status", label: "Status", type: "select", optionsFrom: "statuses", optional: true, showIf: (v) => v.ttype === "Purchase" },
+      { key: "origin", label: "Bought from (e.g. Mansfield, QLD)", type: "text", optional: true, showIf: (v) => v.ttype === "Purchase" },
+      { key: "paddock", label: "Paddock (blank = into the Yards to allocate)", type: "paddock", optional: true, showIf: (v) => v.ttype === "Purchase" && !!v.toProperty },
       { key: "carrier", label: "Carrier", type: "text", optional: true },
       { key: "nvd", label: "NVD / waybill no.", type: "text", optional: true },
       { key: "freightCost", label: "Freight cost ($ quoted/expected)", type: "number", optional: true },
@@ -1085,11 +1092,72 @@ const Chip = ({ color, children }) => (
   </span>
 );
 
-const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes, teamNames, assets, assetTypes, propertyElements, vals }) => {
+// Tag colour picker: tap one, two or three colours, or M/A for mixed age.
+// Shared by the New/Edit mob form and the Purchase form so a tag is entered
+// and stored the same way in both ("White tag", "White + Orange tag", "M/A").
+const TagChips = ({ value, onChange, colours, label }) => {
+  const parts =
+    value === "M/A"
+      ? []
+      : (value || "")
+          .split(" + ")
+          .filter(Boolean)
+          .map((p) => (p.endsWith(" tag") ? p : p + " tag"));
+  return (
+    <div className="f-row">
+      <label className="f-label">{label}</label>
+      <div className="tag-chips">
+        {["M/A", ...(colours || [])].map((t) => {
+          const on = t === "M/A" ? value === "M/A" : parts.includes(t);
+          return (
+            <button
+              type="button"
+              key={t}
+              className={"tag-chip" + (on ? " on" : "")}
+              onClick={() => {
+                if (t === "M/A") {
+                  onChange(value === "M/A" ? "" : "M/A");
+                  return;
+                }
+                const next = on ? parts.filter((x) => x !== t) : [...parts, t];
+                if (next.length > 3) return;
+                const order = colours || [];
+                next.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+                const joined =
+                  next.length <= 1
+                    ? next[0] || ""
+                    : next.map((x, i) => (i < next.length - 1 ? x.replace(/ tag$/, "") : x)).join(" + ");
+                onChange(joined);
+              }}
+            >
+              {t === "M/A" ? "M/A" : t.replace(/ tag$/, "")}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes, statuses, tagColours, teamNames, assets, assetTypes, propertyElements, vals }) => {
   const common = {
     value: value ?? "",
     onChange: (e) => onChange(f.key, e.target.value),
   };
+  if (f.type === "tag")
+    return (
+      <TagChips
+        value={value}
+        onChange={(v) => onChange(f.key, v)}
+        colours={tagColours}
+        label={
+          <>
+            {f.label}
+            {f.optional ? <span className="opt"> optional</span> : null}
+          </>
+        }
+      />
+    );
   const label = (
     <label className="f-label">
       {f.label}
@@ -1107,6 +1175,8 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
     let opts = f.options || [];
     if (f.optionsFrom === "assetTypes") opts = assetTypes || [];
     if (f.optionsFrom === "propertyElements") opts = propertyElements || [];
+    if (f.optionsFrom === "breeds") opts = breeds || [];
+    if (f.optionsFrom === "statuses") opts = (vals?.species && statuses?.[vals.species]) || [];
     if (f.type === "property") opts = properties;
     if (f.type === "breed")
       return (
@@ -1120,7 +1190,10 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
           </select>
         </div>
       );
-    if (f.type === "class") opts = [...(classes?.Cattle || []), ...(classes?.Sheep || [])];
+    // Once a species has been picked on the same form (Purchase), only offer
+    // that species' classes; forms with no species (weaning) get both lists.
+    if (f.type === "class")
+      opts = vals?.species && classes?.[vals.species] ? classes[vals.species] : [...(classes?.Cattle || []), ...(classes?.Sheep || [])];
     if (f.type === "mob") {
       return (
         <div className="f-row">
@@ -1207,7 +1280,7 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
 
 /* ------------------ Generic record form ------------------ */
 
-function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames, breedList = [], assets, assetTypes, propertyElements, onSave, onCancel, defaults, isEditing }) {
+function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, statuses, tagColours, teamNames, breedList = [], assets, assetTypes, propertyElements, onSave, onCancel, defaults, isEditing }) {
   const cfg = RECORD_TYPES[typeKey];
   const mobsetField = cfg.fields.find((f) => f.type === "mobset");
   const propertysetField = cfg.fields.find((f) => f.type === "propertyset");
@@ -1245,6 +1318,9 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
       if (ASSET_INFRA_BRANCHED_TYPES.includes(typeKey) && k === "assetType") {
         delete next.assetId;
       }
+      // A purchase's paddock belongs to the property picked; changing the
+      // property would leave a paddock from the old one selected.
+      if (typeKey === "trucking" && k === "toProperty") delete next.paddock;
       return next;
     });
 
@@ -1510,6 +1586,8 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, teamNames
           paddocks={paddockOptions}
           properties={properties}
           classes={classes}
+          statuses={statuses}
+          tagColours={tagColours}
           teamNames={teamNames}
           assets={assets}
           assetTypes={assetTypes}
@@ -1619,45 +1697,12 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
       <div className="f-grid2">
         {sel("Breed", "breed", settings.breeds || [])}
       </div>
-      <div className="f-row">
-        <label className="f-label">Tag colour — tap one, two or three, or M/A for mixed age</label>
-        <div className="tag-chips">
-          {["M/A", ...(settings.tagColours || [])].map((t) => {
-            const parts =
-              vals.tag === "M/A"
-                ? []
-                : (vals.tag || "")
-                    .split(" + ")
-                    .filter(Boolean)
-                    .map((p) => (p.endsWith(" tag") ? p : p + " tag"));
-            const on = t === "M/A" ? vals.tag === "M/A" : parts.includes(t);
-            return (
-              <button
-                type="button"
-                key={t}
-                className={"tag-chip" + (on ? " on" : "")}
-                onClick={() => {
-                  if (t === "M/A") {
-                    set("tag", vals.tag === "M/A" ? "" : "M/A");
-                    return;
-                  }
-                  let next = on ? parts.filter((x) => x !== t) : [...parts, t];
-                  if (next.length > 3) return;
-                  const order = settings.tagColours || [];
-                  next.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-                  const label =
-                    next.length <= 1
-                      ? next[0] || ""
-                      : next.map((x, i) => (i < next.length - 1 ? x.replace(/ tag$/, "") : x)).join(" + ");
-                  set("tag", label);
-                }}
-              >
-                {t === "M/A" ? "M/A" : t.replace(/ tag$/, "")}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <TagChips
+        value={vals.tag}
+        onChange={(v) => set("tag", v)}
+        colours={settings.tagColours}
+        label="Tag colour — tap one, two or three, or M/A for mixed age"
+      />
       <div className="f-grid2">
         {sel("Class", "cls", classes?.[vals.species] || [], false)}
         {sel("Status", "status", settings.statuses?.[vals.species] || [])}
@@ -3665,19 +3710,31 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       let mobs = [...data.mobs];
       if (rec.ttype === "Purchase") {
         rec.property = rec.toProperty;
-        mobs = [
-          {
-            id: uid(),
-            name: rec.mobName,
-            species: rec.species,
-            cls: rec.cls,
-            head,
-            property: rec.toProperty,
-            paddock: INBOX,
-            createdAt: Date.now(),
-          },
-          ...mobs,
-        ];
+        // The new mob carries the full classification from the form, goes
+        // straight to the chosen paddock (or the Yards if none), and counts
+        // as reclassified when the class is from the new scheme so its DSE
+        // uses the new table straight away.
+        const newMob = {
+          id: uid(),
+          name: "",
+          species: rec.species,
+          breed: rec.breed || "",
+          tag: rec.tag || "",
+          cls: rec.cls,
+          status: rec.status || "",
+          origin: rec.origin || "",
+          head,
+          property: rec.toProperty,
+          paddock: rec.paddock || INBOX,
+          notes: "",
+          createdAt: Date.now(),
+        };
+        if ((NEW_CLASSES[rec.species] || []).includes(rec.cls)) newMob.reclassified = true;
+        // Reads in the Records list / history as the mob's actual name, and
+        // lets undo find exactly this mob instead of guessing.
+        rec.mobName = composeName(newMob);
+        rec.purchasedMobId = newMob.id;
+        mobs = [newMob, ...mobs];
       } else {
         const loads = rec.loads || {};
         const ids = Object.keys(loads).filter((k) => num(loads[k]) > 0);
@@ -4080,9 +4137,13 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           });
         }
         if (rec.ttype === "Purchase") {
-          const idx = mobs.findIndex(
-            (m) => m.property === rec.property && m.species === rec.species && m.cls === rec.cls && num(m.head) >= head
-          );
+          // Purchases saved since the form captured the full classification
+          // remember their mob; older ones are matched by property/species/class.
+          const idx = rec.purchasedMobId
+            ? mobs.findIndex((m) => m.id === rec.purchasedMobId)
+            : mobs.findIndex(
+                (m) => m.property === rec.property && m.species === rec.species && m.cls === rec.cls && num(m.head) >= head
+              );
           if (idx >= 0) mobs = mobs.map((m, i) => (i === idx ? { ...m, head: num(m.head) - head } : m));
         }
       }
@@ -4697,6 +4758,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             paddocksFor={paddocksFor}
             properties={properties}
             classes={settings.classes}
+            statuses={settings.statuses}
+            tagColours={settings.tagColours}
             breedList={settings.breeds || []}
             teamNames={(settings.team || []).map((t) => t.split(" — ")[0].trim())}
             assets={settings.assets || []}
