@@ -2928,6 +2928,17 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     };
     return "ap" + h(u) + h([...u].reverse().join("")) + u.length.toString(36);
   };
+  // "Magenta – Draft ewes" / "Magenta: Draft ewes" / "magenta draft ewes" -> "Magenta".
+  // Longest property name wins; the name must be followed by a non-letter.
+  const propertyFromTitle = (title) => {
+    const t = String(title || "").trim().toLowerCase();
+    const names = [...(settings.properties || DEFAULT_PROPERTIES)].sort((a, b) => b.length - a.length);
+    for (const p of names) {
+      const n = String(p).trim().toLowerCase();
+      if (n && t.startsWith(n) && !/[a-z0-9]/.test(t.charAt(n.length))) return p;
+    }
+    return "";
+  };
   const syncAppleCalendar = async (force) => {
     if (!supabase || PREVIEW) return;
     if (!force && Date.now() - appleSyncAt.current < 5 * 60 * 1000) return;
@@ -2967,6 +2978,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               source: "apple",
               appleUid: ev.uid,
               loggedBy: "Apple Calendar",
+              property: propertyFromTitle(ev.title),
               date: ev.date,
               endDate: ev.endDate || "",
               time: ev.time || "",
@@ -2976,17 +2988,24 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             ...next,
           ];
           added++;
-        } else if (
-          ex.date !== ev.date ||
-          (ex.endDate || "") !== (ev.endDate || "") ||
-          (ex.time || "") !== (ev.time || "") ||
-          ex.title !== ev.title ||
-          (ex.notes || "") !== (ev.notes || "")
-        ) {
-          next = next.map((r) =>
-            r.id === ex.id ? { ...r, date: ev.date, endDate: ev.endDate || "", time: ev.time || "", title: ev.title, notes: ev.notes || "" } : r
-          );
-          updated++;
+        } else {
+          // Only fills a missing property; one set in the app is never changed.
+          const prop = ex.property || propertyFromTitle(ev.title);
+          if (
+            ex.date !== ev.date ||
+            (ex.endDate || "") !== (ev.endDate || "") ||
+            (ex.time || "") !== (ev.time || "") ||
+            ex.title !== ev.title ||
+            (ex.notes || "") !== (ev.notes || "") ||
+            (ex.property || "") !== prop
+          ) {
+            next = next.map((r) =>
+              r.id === ex.id
+                ? { ...r, property: prop, date: ev.date, endDate: ev.endDate || "", time: ev.time || "", title: ev.title, notes: ev.notes || "" }
+                : r
+            );
+            updated++;
+          }
         }
       });
       // Deleted in Apple Calendar -> gone here too, but only inside the window
