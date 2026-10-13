@@ -325,6 +325,10 @@ const LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAWgAAADaBAMAAAB5vsUs
 const LAND_USES = ["Silage", "Summer Crop", "Annual Pasture", "Perennial Pasture", "Spray", "Fertilizer"];
 const WOOL_ELIGIBLE = (m) => m.species === "Sheep" && (m.breed === "Merino" || m.breed === "Dorset");
 const INBOX = "Inbox";
+// Sort / allocate destinations that aren't a paddock: stock sold or dead
+// straight out of the Yards. Never stored on a mob or record.
+const SORT_SOLD = "__sold__";
+const SORT_DIED = "__died__";
 // The Inbox paddock value doubles as "the Yards" — mobs land there either
 // because a property transfer hasn't been allocated to a paddock yet, or
 // because they were mustered in to sort/reclass. Same physical place, same
@@ -2716,6 +2720,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const [sortMob, setSortMob] = useState(null); // the mob currently being drafted/sorted, or null
   const [sortRows, setSortRows] = useState([]);
   const [sortErr, setSortErr] = useState("");
+  const [sortBuyer, setSortBuyer] = useState(""); // buyer / saleyard for any "Sold" group
   const [openMaintId, setOpenMaintId] = useState(null);
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState(null); // { message, onYes }
@@ -3478,18 +3483,26 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // own save path rather than looping saveRecord() per row: saveRecord reads
   // data.mobs from the render closure, so several calls in the same click
   // would each start from the same stale head count instead of accumulating.
-  const openSort = (mob) => {
+  // preset: "sold" / "died" opens with the first group already set that way
+  // (the Yards "Sell" / "Deaths" shortcuts). Selling defaults to the whole mob.
+  const openSort = (mob, preset) => {
     setSortErr("");
+    setSortBuyer("");
     setSortMob(mob);
-    setSortRows([
-      { head: "", cls: mob.cls || "", status: mob.status || "", toPaddock: "" },
-      { head: "", cls: mob.cls || "", status: mob.status || "", toPaddock: "" },
-    ]);
+    const blank = () => ({ head: "", cls: mob.cls || "", status: mob.status || "", toPaddock: "" });
+    const first =
+      preset === "sold"
+        ? { ...blank(), toPaddock: SORT_SOLD, head: String(Math.round(num(mob.head)) || "") }
+        : preset === "died"
+        ? { ...blank(), toPaddock: SORT_DIED }
+        : blank();
+    setSortRows([first, blank()]);
   };
   const closeSortOverlay = () => {
     setSortMob(null);
     setSortRows([]);
     setSortErr("");
+    setSortBuyer("");
   };
   const addSortRow = () =>
     setSortRows((rows) => [...rows, { head: "", cls: sortMob?.cls || "", status: sortMob?.status || "", toPaddock: "" }]);
@@ -3507,8 +3520,13 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const submitSort = (markMissing = false) => {
     const source = sortMob;
     if (!source) return;
-    const rows = sortRows.filter((r) => num(r.head) > 0 && r.toPaddock && r.cls);
+    // "Sold" / "Died" groups aren't a paddock and don't need a class — they
+    // leave the book (a sale record / a Deaths adjustment) instead of moving.
+    const isOut = (r) => r.toPaddock === SORT_SOLD || r.toPaddock === SORT_DIED;
+    const rows = sortRows.filter((r) => num(r.head) > 0 && r.toPaddock && (r.cls || isOut(r)));
     const totalHead = rows.reduce((a, r) => a + Math.round(num(r.head)), 0);
+    const soldHead = rows.filter((r) => r.toPaddock === SORT_SOLD).reduce((a, r) => a + Math.round(num(r.head)), 0);
+    const diedHead = rows.filter((r) => r.toPaddock === SORT_DIED).reduce((a, r) => a + Math.round(num(r.head)), 0);
     if (totalHead > Math.round(num(source.head))) {
       setSortErr(`Only ${Math.round(num(source.head)).toLocaleString()} head available to sort`);
       return;
@@ -3522,8 +3540,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     let mobs = [...data.mobs];
     const newMoveRecs = [];
     const newAdjustRecs = [];
+    const newSaleRecs = [];
     const auditEntries = [];
-    rows.forEach((row) => {
+    rows.filter((r) => !isOut(r)).forEach((row) => {
       const moveHead = Math.round(num(row.head));
       const overrides = {
         cls: row.cls,
@@ -3575,6 +3594,78 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     });
     mobs = mobs.map((m) => (m.id === source.id ? { ...m, head: num(m.head) - totalHead } : m));
 
+    // Deaths in the Yards: the same Deaths adjustment the Stock adjustment
+    // form writes (delta is what reverse/undo uses), already taken off the
+    // source mob above with the rest of totalHead.
+    if (diedHead > 0) {
+      const deathRec = {
+        id: uid(),
+        createdAt: Date.now(),
+        date: todayStr(),
+        mobId: source.id,
+        reason: "Deaths",
+        head: diedHead,
+        delta: -diedHead,
+        mobName: srcName,
+        property: source.property,
+        cls: source.cls,
+        species: source.species,
+        loggedBy: userEmail || "unknown",
+        notes: "Died — recorded from the Yards",
+      };
+      newAdjustRecs.push(deathRec);
+      const sDeath = summarise("adjust", deathRec);
+      auditEntries.push({
+        id: uid(),
+        ts: Date.now(),
+        user: userEmail || "unknown",
+        action: RECORD_TYPES.adjust.single,
+        summary: [sDeath.title, sDeath.sub].filter(Boolean).join(" · "),
+        typeKey: "adjust",
+        recordId: deathRec.id,
+      });
+    }
+    // Sold from the Yards: one Sale to market record for the whole mob's
+    // sold groups, loaded off the source mob like any other sale (undo puts
+    // the head back through the usual trucking reverse).
+    if (soldHead > 0) {
+      const saleRec = {
+        id: uid(),
+        createdAt: Date.now(),
+        date: todayStr(),
+        ttype: "Sale to market",
+        fromProperty: source.property,
+        destination: (sortBuyer || "").trim(),
+        loads: { [source.id]: soldHead },
+        head: soldHead,
+        mobName: srcName,
+        property: source.property,
+        species: source.species,
+        nlis: "Not yet recorded",
+        loggedBy: userEmail || "unknown",
+        notes: "Sold from the Yards",
+      };
+      const hot = (data.health || []).filter(
+        (h) => h.mobId === source.id && ((h.whpClear && h.whpClear >= todayStr()) || (h.esiClear && h.esiClear >= todayStr()))
+      );
+      if (hot.length) {
+        const worst = hot.map((h) => [h.whpClear, h.esiClear].filter(Boolean).sort().pop()).sort().pop();
+        saleRec.residueWarning = "Within WHP/ESI until " + fmtDate(worst);
+        setAppError("⚠ This mob is within a WHP/ESI period (until " + fmtDate(worst) + ") — check before consigning.");
+      }
+      newSaleRecs.push(saleRec);
+      const sSale = summarise("trucking", saleRec);
+      auditEntries.push({
+        id: uid(),
+        ts: Date.now(),
+        user: userEmail || "unknown",
+        action: RECORD_TYPES.trucking.single,
+        summary: [sSale.title, sSale.sub].filter(Boolean).join(" · "),
+        typeKey: "trucking",
+        recordId: saleRec.id,
+      });
+    }
+
     if (markMissing && remaining > 0) {
       const adjRec = {
         id: uid(),
@@ -3607,11 +3698,16 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     setAndSave("mobs", mobs);
     if (newMoveRecs.length) setAndSave("moves", [...newMoveRecs, ...data.moves]);
     if (newAdjustRecs.length) setAndSave("adjust", [...newAdjustRecs, ...data.adjust]);
+    if (newSaleRecs.length) setAndSave("trucking", [...newSaleRecs, ...data.trucking]);
     setAndSave("audit", [...auditEntries, ...(data.audit || [])]);
     closeSortOverlay();
     const parts = [];
-    if (totalHead) parts.push(`${totalHead.toLocaleString()} head into ${rows.length} group${rows.length === 1 ? "" : "s"}`);
-    if (newAdjustRecs.length) parts.push(`${remaining.toLocaleString()} marked missing`);
+    const movedHead = totalHead - soldHead - diedHead;
+    const movedGroups = rows.filter((r) => !isOut(r)).length;
+    if (movedHead) parts.push(`${movedHead.toLocaleString()} head into ${movedGroups} group${movedGroups === 1 ? "" : "s"}`);
+    if (soldHead) parts.push(`${soldHead.toLocaleString()} sold`);
+    if (diedHead) parts.push(`${diedHead.toLocaleString()} died`);
+    if (markMissing && remaining > 0) parts.push(`${remaining.toLocaleString()} marked missing`);
     flash(`Sorted — ${parts.join(" · ")}`);
   };
 
@@ -5179,6 +5275,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   <select value={row.toPaddock} onChange={(e) => setSortRowField(i, "toPaddock", e.target.value)}>
                     <option value="">Select…</option>
                     <option value={INBOX}>Yards (keep sorting)</option>
+                    <option value={SORT_SOLD}>💲 Sold (to market)</option>
+                    <option value={SORT_DIED}>✝ Died</option>
                     {paddocksFor(sortMob.property).map((p) => (
                       <option key={p} value={p}>
                         {p}
@@ -5187,29 +5285,38 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   </select>
                 </div>
               </div>
-              <div className="f-grid2">
-                <div className="f-row">
-                  <label className="f-label">Class</label>
-                  <select value={row.cls} onChange={(e) => setSortRowField(i, "cls", e.target.value)}>
-                    <option value="">Select…</option>
-                    {(settings.classes?.[sortMob.species] || []).map((c) => (
-                      <option key={c}>{c}</option>
-                    ))}
-                  </select>
+              {row.toPaddock !== SORT_SOLD && row.toPaddock !== SORT_DIED && (
+                <div className="f-grid2">
+                  <div className="f-row">
+                    <label className="f-label">Class</label>
+                    <select value={row.cls} onChange={(e) => setSortRowField(i, "cls", e.target.value)}>
+                      <option value="">Select…</option>
+                      {(settings.classes?.[sortMob.species] || []).map((c) => (
+                        <option key={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="f-row">
+                    <label className="f-label">
+                      Status <span className="opt">optional</span>
+                    </label>
+                    <select value={row.status} onChange={(e) => setSortRowField(i, "status", e.target.value)}>
+                      <option value="">—</option>
+                      {(settings.statuses?.[sortMob.species] || []).map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div className="f-row">
-                  <label className="f-label">
-                    Status <span className="opt">optional</span>
-                  </label>
-                  <select value={row.status} onChange={(e) => setSortRowField(i, "status", e.target.value)}>
-                    <option value="">—</option>
-                    {(settings.statuses?.[sortMob.species] || []).map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              {classStatusWarning(row.cls, row.status) && (
+              )}
+              {(row.toPaddock === SORT_SOLD || row.toPaddock === SORT_DIED) && (
+                <p className="note" style={{ margin: "0 0 8px" }}>
+                  {row.toPaddock === SORT_SOLD
+                    ? "Recorded as a Sale to market off this mob."
+                    : "Recorded as a Deaths stock adjustment on this mob."}
+                </p>
+              )}
+              {classStatusWarning(row.cls, row.status) && row.toPaddock !== SORT_SOLD && row.toPaddock !== SORT_DIED && (
                 <p className="note" style={{ color: "#B03A2E", margin: "0 0 8px" }}>
                   {classStatusWarning(row.cls, row.status)}
                 </p>
@@ -5226,6 +5333,14 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               + Add group
             </button>
           </div>
+          {sortRows.some((r) => r.toPaddock === SORT_SOLD) && (
+            <div className="f-row">
+              <label className="f-label">
+                Buyer / saleyard <span className="opt">optional</span>
+              </label>
+              <input value={sortBuyer} placeholder="e.g. Wagga market" onChange={(e) => setSortBuyer(e.target.value)} />
+            </div>
+          )}
           <div className="rain-row">
             <span>Remaining unallocated</span>
             <span className={"rain-mm" + (sortRemaining < 0 ? " neg" : "")}>{sortRemaining.toLocaleString()}</span>
@@ -5567,9 +5682,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                       <span style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                         {composeName(m)} — {num(m.head).toLocaleString()} hd ({m.property})
                       </span>
-                      <span style={{ display: "flex", gap: 6 }}>
+                      <span style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <button className="mini-btn" onClick={() => openSort(m)}>
                           Sort
+                        </button>
+                        <button className="mini-btn" onClick={() => openSort(m, "sold")}>
+                          Sell
+                        </button>
+                        <button className="mini-btn danger" onClick={() => openSort(m, "died")}>
+                          Deaths
                         </button>
                         <button className="mini-btn allocate" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
                           Allocate
@@ -6404,9 +6525,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                           <span style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
                             {composeName(m)} — {num(m.head).toLocaleString()}
                           </span>
-                          <span style={{ display: "flex", gap: 6 }}>
+                          <span style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                             <button className="mini-btn" onClick={() => openSort(m)}>
                               Sort
+                            </button>
+                            <button className="mini-btn" onClick={() => openSort(m, "sold")}>
+                              Sell
+                            </button>
+                            <button className="mini-btn danger" onClick={() => openSort(m, "died")}>
+                              Deaths
                             </button>
                             <button
                               className="mini-btn allocate"
