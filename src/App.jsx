@@ -4207,8 +4207,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // Reverses a record's stock-count/paddock side effects (if any) and removes it
   // from its list. Shared by delete (with a confirm prompt) and edit (silent —
   // the old version is retired and the edited version is re-applied fresh).
-  const reverseRecordEffects = (typeKey, id) => {
-    const rec = (data[typeKey] || []).find((r) => r.id === id);
+  // The mob list as it would be once `rec`'s stock effects are reversed —
+  // pure, so undo/edit can check the result before anything is written.
+  const mobsAfterReverse = (typeKey, rec) => {
     let mobs = data.mobs;
       if (typeKey === "adjust" && rec && rec.delta) {
         mobs = mobs.map((m) => (m.id === rec.mobId ? { ...m, head: num(m.head) - num(rec.delta) } : m));
@@ -4291,11 +4292,60 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           if (idx >= 0) mobs = mobs.map((m, i) => (i === idx ? { ...m, head: num(m.head) - head } : m));
         }
       }
-      if (mobs !== data.mobs) setAndSave("mobs", mobs);
-      setAndSave(
-        typeKey,
-        data[typeKey].filter((r) => r.id !== id)
-      );
+    return mobs;
+  };
+
+  // The mob list after a new/edited record's deductions (sale, transfer,
+  // adjustment, weaning, preg test) are applied to `base`. Only the effects
+  // that can take a mob below zero — mirrors what saveRecord does.
+  const mobsAfterApply = (typeKey, rec, base) => {
+    if (typeKey === "adjust") {
+      const reason = String(rec.reason || "");
+      const entered = num(rec.head);
+      const minus = reason === "Deaths" || reason === "Mismustered / missing";
+      return base.map((m) => {
+        if (m.id !== rec.mobId) return m;
+        const delta = reason.startsWith("Recount")
+          ? Math.round(entered) - Math.round(num(m.head))
+          : reason.startsWith("Correction")
+          ? Math.round(entered)
+          : Math.round(Math.abs(entered)) * (minus ? -1 : 1);
+        return { ...m, head: num(m.head) + delta };
+      });
+    }
+    if (typeKey === "trucking" && rec.ttype !== "Purchase") {
+      const loads = rec.loads || {};
+      return base.map((m) => (loads[m.id] !== undefined ? { ...m, head: num(m.head) - Math.round(num(loads[m.id])) } : m));
+    }
+    if (typeKey === "weaning" || typeKey === "pregtest") {
+      const n = Math.round(num(rec.head));
+      return base.map((m) => (m.id === rec.mobId ? { ...m, head: num(m.head) - n } : m));
+    }
+    return base;
+  };
+
+  // Mobs a change would push below zero, or further below it than they are
+  // now. A mob that's already negative and gets better is not flagged.
+  const newlyNegative = (after) =>
+    after.filter((m) => {
+      if (num(m.head) >= 0) return false;
+      const was = data.mobs.find((x) => x.id === m.id);
+      return !was || num(m.head) < num(was.head);
+    });
+  const negativeNote = (list) =>
+    list
+      .slice(0, 4)
+      .map((m) => composeName(m) + (m.property ? " (" + m.property + ")" : "") + " → " + Math.round(num(m.head)))
+      .join("; ") + (list.length > 4 ? " …" : "");
+
+  const reverseRecordEffects = (typeKey, id) => {
+    const rec = (data[typeKey] || []).find((r) => r.id === id);
+    const mobs = rec ? mobsAfterReverse(typeKey, rec) : data.mobs;
+    if (mobs !== data.mobs) setAndSave("mobs", mobs);
+    setAndSave(
+      typeKey,
+      data[typeKey].filter((r) => r.id !== id)
+    );
     return rec;
   };
 
@@ -4318,9 +4368,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     }
     // Deleting a spend request never touches its linked PO — it may already be
     // approved/paid — so warn instead of silently leaving it disconnected.
+    // Undoing a sort / transfer / weaning takes sheep back off the mob they
+    // went into — if those have since been sold or moved on, that mob goes
+    // negative. Say so before it happens.
+    const goesNegative = reverses && existing ? newlyNegative(mobsAfterReverse(typeKey, existing)) : [];
     const message =
       typeKey === "spendRequest" && existing?.linkedOrderId
         ? `Delete this request? Its linked Purchase Order (${existing.poNumber || "already raised"}) will NOT be deleted — remove it separately from Recs → Purchase orders if needed.`
+        : goesNegative.length
+        ? `⚠ Undoing this would take ${negativeNote(goesNegative)} below zero — those sheep have probably been sold, moved or adjusted since. Undo anyway?`
         : reverses
         ? "Undo this entry? Stock numbers and paddocks will be put back."
         : "Delete this record?";
@@ -4926,12 +4982,26 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             onSave={(rec) => {
               const typeKey = activeForm.type || activeForm;
               const isNew = !activeForm.editId;
-              if (activeForm.editId) {
-                reverseRecordEffects(typeKey, activeForm.editId);
-                rec = { ...rec, id: activeForm.editId };
-              }
-              saveRecord(typeKey, rec);
-              if (isNew && typeKey === "calendar") triggerCalendarPush(rec);
+              const editId = activeForm.editId;
+              const go = () => {
+                if (editId) {
+                  reverseRecordEffects(typeKey, editId);
+                  rec = { ...rec, id: editId };
+                }
+                saveRecord(typeKey, rec);
+                if (isNew && typeKey === "calendar") triggerCalendarPush(rec);
+              };
+              // Warn before a sale, transfer, adjustment, weaning or preg test
+              // takes more head off a mob than the book says it has.
+              const old = editId ? (data[typeKey] || []).find((r) => r.id === editId) : null;
+              const base = old ? mobsAfterReverse(typeKey, old) : data.mobs;
+              const bad = newlyNegative(mobsAfterApply(typeKey, rec, base));
+              if (bad.length) {
+                ask(
+                  `⚠ This would take ${negativeNote(bad)} below zero — the book count is lower than what you're taking out. Do a recount first if the count is wrong. Save anyway?`,
+                  go
+                );
+              } else go();
             }}
             onCancel={() => setActiveForm(null)}
           />
