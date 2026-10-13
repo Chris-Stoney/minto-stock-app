@@ -6,10 +6,8 @@ name: Stock check
 # Run with "backtest" ticked to write reports/stock-check-backtest.md from every
 # backup so far (no email).
 on:
-  # Daily schedule is switched off until the back-test has been reviewed.
-  # To switch it on, remove the leading "# " from the next two lines.
-  # schedule:
-  #   - cron: "30 19 * * *" # daily ~05:30 AEST, after the 05:00 backup
+  schedule:
+    - cron: "30 19 * * *" # daily ~05:30 AEST, after the 05:00 backup
   workflow_dispatch:
     inputs:
       backtest:
