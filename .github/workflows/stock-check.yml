@@ -2,12 +2,14 @@ name: Stock check
 
 # Compares the two latest daily backups and emails Gwen anything the records
 # don't explain (head that vanished, older records edited or undone, mobs below
-# zero). Runs after the daily backup; stays silent on a clean day. Needs the
-# RESEND_API_KEY secret. Run with "backtest" ticked to write
-# reports/stock-check-backtest.md from every backup so far (no email).
+# zero). Stays silent on a clean day. Needs the RESEND_API_KEY secret.
+# Run with "backtest" ticked to write reports/stock-check-backtest.md from every
+# backup so far (no email).
 on:
-  schedule:
-    - cron: "30 19 * * *" # daily ~05:30 AEST, after the 05:00 backup
+  # Daily schedule is switched off until the back-test has been reviewed.
+  # To switch it on, remove the leading "# " from the next two lines.
+  # schedule:
+  #   - cron: "30 19 * * *" # daily ~05:30 AEST, after the 05:00 backup
   workflow_dispatch:
     inputs:
       backtest:
