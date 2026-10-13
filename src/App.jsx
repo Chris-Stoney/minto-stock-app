@@ -4126,6 +4126,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     flash("Saved");
   };
 
+  // Always the newest render's saveRecord — used to re-apply an edited record
+  // after its old effects have been reversed and rendered (see the form's
+  // onSave), so the re-apply starts from the reversed counts.
+  const saveRecordRef = useRef(null);
+  saveRecordRef.current = saveRecord;
+
   const saveMob = (rawMob) => {
     // A mob saved with a class from the new scheme counts as reclassified, so
     // its DSE uses the new table and it doesn't reappear in the Reclassify
@@ -4985,8 +4991,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               const editId = activeForm.editId;
               const go = () => {
                 if (editId) {
+                  // Reverse the old version first and let that render, then
+                  // save the new one from the reversed counts. Doing both in
+                  // this one handler had the second step read the pre-edit
+                  // mob list, so the old head was taken off twice.
                   reverseRecordEffects(typeKey, editId);
-                  rec = { ...rec, id: editId };
+                  const edited = { ...rec, id: editId };
+                  setActiveForm(null);
+                  setTimeout(() => saveRecordRef.current(typeKey, edited), 60);
+                  return;
                 }
                 saveRecord(typeKey, rec);
                 if (isNew && typeKey === "calendar") triggerCalendarPush(rec);
