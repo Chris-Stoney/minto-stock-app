@@ -5310,24 +5310,27 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   </div>
                 </div>
                 <div className="f-grid2">
-                  <div className="f-row">
-                    <label className="f-label">
-                      Tag <span className="opt">optional</span>
-                    </label>
-                    {tagEditable(g) ? (
-                      <select value={draft.tag || ""} onChange={(e) => setDraftField(g, "tag", e.target.value)}>
-                        <option value="">—</option>
-                        <option value="M/A">M/A</option>
-                        {(settings.tagColours || []).map((t) => (
-                          <option key={t}>{t}</option>
-                        ))}
-                      </select>
-                    ) : (
+                  {tagEditable(g) ? (
+                    <TagChips
+                      value={draft.tag || ""}
+                      onChange={(v) => setDraftField(g, "tag", v)}
+                      colours={settings.tagColours || []}
+                      label={
+                        <>
+                          Tag <span className="opt">optional — tap up to 3 colours</span>
+                        </>
+                      }
+                    />
+                  ) : (
+                    <div className="f-row">
+                      <label className="f-label">
+                        Tag <span className="opt">optional</span>
+                      </label>
                       <p className="note" style={{ margin: 0 }}>
                         Mixed tags in this group ({g.tags.join(", ")}) — edit affected mobs individually via Edit mob.
                       </p>
-                    )}
-                  </div>
+                    </div>
+                  )}
                   <div className="f-row" />
                 </div>
                 {classStatusWarning(draft.cls, draft.status) && (
