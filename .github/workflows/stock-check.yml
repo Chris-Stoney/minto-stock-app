@@ -1,0 +1,50 @@
+name: Stock check
+
+# Compares the two latest daily backups and emails Gwen anything the records
+# don't explain (head that vanished, older records edited or undone, mobs below
+# zero). Runs after the daily backup; stays silent on a clean day. Needs the
+# RESEND_API_KEY secret. Run with "backtest" ticked to write
+# reports/stock-check-backtest.md from every backup so far (no email).
+on:
+  schedule:
+    - cron: "30 19 * * *" # daily ~05:30 AEST, after the 05:00 backup
+  workflow_dispatch:
+    inputs:
+      backtest:
+        description: "Back-test every backup and commit the report (no email)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Back-test
+        if: ${{ inputs.backtest }}
+        run: python scripts/stock_check.py --backtest --out reports/stock-check-backtest.md
+
+      - name: Commit back-test report
+        if: ${{ inputs.backtest }}
+        run: |
+          git config user.name "stock-check-bot"
+          git config user.email "backup@mintopastoral.com.au"
+          git add reports/
+          git diff --cached --quiet || git commit -m "Stock check back-test report"
+          git push
+
+      - name: Check latest backup
+        if: ${{ !inputs.backtest }}
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_FROM: ${{ vars.ALERT_FROM }}
+          STOCK_CHECK_TO: ${{ vars.STOCK_CHECK_TO }}
+          STOCK_CHECK_MIN: ${{ vars.STOCK_CHECK_MIN }}
+        run: python scripts/stock_check.py --send
