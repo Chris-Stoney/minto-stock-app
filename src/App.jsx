@@ -5991,6 +5991,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                       <div className="act-title">{su.title}</div>
                       <div className="act-sub">{fmtDate(r.date)} · {su.sub}</div>
                     </div>
+                    <button className="mini-btn" onClick={() => editRecordFromLog("shearing", r.id)}>
+                      Edit
+                    </button>
+                    <button className="mini-btn danger" onClick={() => deleteRecord("shearing", r.id)}>
+                      ✕
+                    </button>
                   </div>
                 );
               })}
@@ -6007,6 +6013,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                       <div className="act-title">{su.title}</div>
                       <div className="act-sub">{fmtDate(r.date)} · {su.sub}</div>
                     </div>
+                    <button className="mini-btn" onClick={() => editRecordFromLog("woolsale", r.id)}>
+                      Edit
+                    </button>
+                    <button className="mini-btn danger" onClick={() => deleteRecord("woolsale", r.id)}>
+                      ✕
+                    </button>
                   </div>
                 );
               })}
@@ -6049,7 +6061,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                             · {r.mobName || ""} · {r.destination || "no destination recorded"}
                           </span>
                         </span>
-                        <span className="rain-mm">{num(r.head).toLocaleString()}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span className="rain-mm">{num(r.head).toLocaleString()}</span>
+                          <button className="mini-btn" onClick={() => editRecordFromLog("trucking", r.id)}>
+                            Edit
+                          </button>
+                          <button className="mini-btn danger" onClick={() => deleteRecord("trucking", r.id)}>
+                            ✕
+                          </button>
+                        </span>
                       </div>
                     ))}
                   </section>
@@ -6191,6 +6211,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                         </button>
                       </>
                     )}
+                    <button className="mini-btn" onClick={() => editRecordFromLog(recordView, r.id)}>
+                      Edit
+                    </button>
                     <button className="mini-btn danger" onClick={() => deleteRecord(recordView, r.id)}>
                       ✕
                     </button>
