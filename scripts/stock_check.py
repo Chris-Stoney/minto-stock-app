@@ -193,11 +193,21 @@ def compare(a, b):
             if missing:
                 orphans.append(f"{describe(kind, rec) if kind != 'moves' else 'Move ' + (rec.get('mobName') or '')} points at a mob that isn't in the list")
 
-    negatives = [
-        f"{name_of(m)} — {round(num(m.get('head')))} hd ({m.get('property')}, {m.get('paddock') or 'no paddock'})"
-        for m in b["mobs"]
-        if num(m.get("head")) < 0
-    ]
+    # Below zero: only newly negative (or gone further negative) counts as a
+    # finding; ones that haven't moved are listed as "still below zero" and
+    # re-raised once a week so they don't fill the inbox every morning.
+    was_head = {m.get("id"): num(m.get("head")) for m in a["mobs"]}
+    negatives, still_negative = [], []
+    for m in b["mobs"]:
+        h = num(m.get("head"))
+        if h >= 0:
+            continue
+        line = f"{name_of(m)} — {round(h)} hd ({m.get('property')}, {m.get('paddock') or 'no paddock'})"
+        prev = was_head.get(m.get("id"))
+        if prev is None or prev >= 0 or h < prev:
+            negatives.append(line)
+        else:
+            still_negative.append(line)
 
     lo, hi = a["_ms"], b["_ms"]
     props = [r["property"].lower() for r in flagged]
@@ -218,8 +228,14 @@ def compare(a, b):
         "changed": changed,
         "orphans": orphans,
         "negatives": negatives,
+        "still_negative": still_negative,
+        "weekly": datetime.date.fromisoformat(b["_date"]).weekday() == 0,  # Mondays
         "context": context[:12],
     }
+
+
+def capped(items, n=10):
+    return list(items[:n]) + ([f"… and {len(items) - n} more"] if len(items) > n else [])
 
 
 def name_of(m):
@@ -228,7 +244,9 @@ def name_of(m):
 
 
 def has_findings(r):
-    return bool(r["flagged"] or r["changed"] or r["orphans"] or r["negatives"])
+    return bool(
+        r["flagged"] or r["changed"] or r["orphans"] or r["negatives"] or (r["weekly"] and r["still_negative"])
+    )
 
 
 def fmt(n):
@@ -240,6 +258,8 @@ def to_text(r):
     out = [f"Stock check — {r['from']} → {r['to']}"]
     if not has_findings(r):
         out.append("  All clear: every head-count change is explained by the records.")
+        if r["still_negative"]:
+            out.append(f"  ({len(r['still_negative'])} mob(s) still below zero, unchanged — raised again on Monday)")
         return "\n".join(out)
     if r["flagged"]:
         out.append(f"  Unexplained head changes (≥ {MIN_HEAD:g}):")
@@ -249,10 +269,11 @@ def to_text(r):
                 f"(records explain {fmt(x['explained'])}, unexplained {fmt(x['unexplained'])})"
             )
     for title, items in (
-        ("Mobs gone from the list while holding stock", r["vanished"]),
-        ("Older records edited or undone", r["changed"]),
-        ("Records pointing at a missing mob", r["orphans"]),
-        ("Mobs below zero", r["negatives"]),
+        ("Mobs gone from the list while holding stock", capped(r["vanished"])),
+        ("Older records edited or undone", capped(r["changed"])),
+        ("Records pointing at a missing mob", capped(r["orphans"])),
+        ("Mobs newly below zero", r["negatives"]),
+        ("Still below zero (unchanged)", r["still_negative"]),
         ("Changes made in that window", r["context"]),
     ):
         if items:
@@ -277,10 +298,11 @@ def to_html(r):
             )
         p.append("</table>")
     for title, items, colour in (
-        ("Mobs gone from the list while holding stock", r["vanished"], "#B03A2E"),
-        ("Older records edited or undone", r["changed"], "#C25E1F"),
-        ("Records pointing at a missing mob", r["orphans"], "#C25E1F"),
-        ("Mobs below zero", r["negatives"], "#B03A2E"),
+        ("Mobs gone from the list while holding stock", capped(r["vanished"]), "#B03A2E"),
+        ("Older records edited or undone", capped(r["changed"]), "#C25E1F"),
+        ("Records pointing at a missing mob", capped(r["orphans"]), "#C25E1F"),
+        ("Mobs newly below zero", r["negatives"], "#B03A2E"),
+        ("Still below zero (unchanged)", r["still_negative"], "#B03A2E"),
         ("What was changed in that window", r["context"], "#2E7F8F"),
     ):
         if items:
