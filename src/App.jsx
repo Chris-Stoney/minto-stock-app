@@ -136,6 +136,7 @@ const CLASS_GROUP = {
   "Ewe lamb": "Young sheep",
   "Wether lamb": "Young sheep",
   "Ram lamb": "Young sheep",
+  "M/S Lamb": "Young sheep",
   Ram: "Rams",
 };
 const groupFor = (m) =>
@@ -495,10 +496,10 @@ const NEW_BREEDS = {
 };
 const NEW_CLASSES = {
   Cattle: ["Bull", "Calf", "Cow", "Heifer", "M/S Weaners", "Stag", "Steer"],
-  Sheep: ["Ewe", "Ewe lamb", "M/S Weaners", "Ram", "Ram lamb", "Wether lamb"],
+  Sheep: ["Ewe", "Ewe lamb", "M/S Lamb", "M/S Weaners", "Ram", "Ram lamb", "Wether lamb"],
 };
 const NEW_STATUSES = {
-  Cattle: ["CAF", "Joined", "PTE", "PTIC", "Store", "Trading", "Weaner"],
+  Cattle: ["Backgrounding", "CAF", "Joined", "PTE", "PTIC", "Trading", "Weaner"],
   Sheep: ["Backgrounding", "Dry", "Joined", "LAF", "Lambing", "SIL", "Terminal", "Trading", "Wet"],
 };
 // Step 8 of the 8 Oct 2026 classification flow: key dates per mob, which
@@ -513,7 +514,7 @@ const MOB_DATE_COLOR = { dueDate: "#5C8A4E", testDate: "#A85C7A", sellDate: "#7D
 // slip — warned about, not blocked (a yearling heifer or ewe lamb can
 // legitimately be joined, so only the clearly non-breeding classes count).
 const BREEDING_STATUSES = ["CAF", "Joined", "PTE", "PTIC", "LAF", "Lambing", "SIL", "Wet"];
-const NON_BREEDING_CLASSES = ["Bull", "Stag", "Steer", "Ram", "Ram lamb", "Wether lamb", "Calf", "M/S Weaners"];
+const NON_BREEDING_CLASSES = ["Bull", "Stag", "Steer", "Ram", "Ram lamb", "Wether lamb", "Calf", "M/S Weaners", "M/S Lamb"];
 const classStatusWarning = (cls, status) =>
   NON_BREEDING_CLASSES.includes(cls) && BREEDING_STATUSES.includes(status)
     ? `"${status}" is a breeding status — unusual for ${cls}.`
@@ -529,13 +530,15 @@ const NEW_OTHER = ["Multiples", "Singles", "Twins"]; // sheep only
 // (stud vs commercial) deliberately isn't a factor — same class, same DSE.
 const NEW_CLASS_DSE = {
   Cattle: {
-    "Bull|": 8, "Calf|": 5, "Cow|": 10, "Cow|CAF": 10, "Cow|PTE": 10, "Cow|Store": 10,
-    "Heifer|": 8, "Heifer|PTIC": 8, "Heifer|Store": 8,
-    "Steer|": 8, "Steer|Store": 8, "Stag|": 8, "M/S Weaners|": 6, "M/S Weaners|Weaner": 6,
+    "Bull|": 8, "Calf|": 5, "Cow|": 10, "Cow|CAF": 10, "Cow|PTE": 10, "Cow|Backgrounding": 10,
+    "Heifer|": 8, "Heifer|PTIC": 8, "Heifer|Backgrounding": 8,
+    "Steer|": 8, "Steer|Backgrounding": 8, "Stag|": 8, "M/S Weaners|": 6, "M/S Weaners|Weaner": 6,
   },
   Sheep: {
     "Ewe|": 3, "Ewe|LAF": 3, "Ewe|Dry": 1, "Ewe|Wet": 3,
     "Ewe lamb|": 1.2, "Wether lamb|": 1.2, "Ram|": 2, "Ram lamb|": 1.2, "M/S Weaners|": 1.2,
+    // Added 13 Oct 2026 — assumed the same as a weaner lamb until confirmed.
+    "M/S Lamb|": 1.2,
     // Estimated by analogy with the nearest existing status (Joined ~ Dry,
     // Lambing ~ Wet) — not separately confirmed like the rest of this
     // table. Flag to the user and correct here if wrong. Any other status
@@ -559,7 +562,7 @@ const RECLASSIFY_MAP = {
   "Cattle||Heifers|": { breed: "", cls: "Heifer", status: "", timing: "", other: "" },
   "Cattle||Heifers|PTIC": { breed: "", cls: "Heifer", status: "PTIC", timing: "", other: "" },
   "Cattle||Steers|": { breed: "", cls: "Steer", status: "", timing: "", other: "" },
-  "Cattle||Store cows|Store": { breed: "", cls: "Cow", status: "Store", timing: "", other: "" },
+  "Cattle||Store cows|Store": { breed: "", cls: "Cow", status: "Backgrounding", timing: "", other: "" },
   "Cattle||Stud Angus cows|": { breed: "Stud Angus", cls: "Cow", status: "", timing: "", other: "" },
   "Cattle||Stud Angus heifers|": { breed: "Stud Angus", cls: "Heifer", status: "", timing: "", other: "" },
   "Cattle|Angus|Bulls|": { breed: "Angus", cls: "Bull", status: "", timing: "", other: "" },
@@ -574,8 +577,8 @@ const RECLASSIFY_MAP = {
   "Cattle|F1|Calves|": { breed: "F1", cls: "Calf", status: "", timing: "", other: "" },
   "Cattle|F1|Cows & calves|": { breed: "F1", cls: "Cow", status: "CAF", timing: "", other: "" },
   "Cattle|F1|Cows|": { breed: "F1", cls: "Cow", status: "", timing: "", other: "" },
-  "Cattle|F1|Heifers|Store": { breed: "F1", cls: "Heifer", status: "Store", timing: "", other: "" },
-  "Cattle|F1|Steers|Store": { breed: "F1", cls: "Steer", status: "Store", timing: "", other: "" },
+  "Cattle|F1|Heifers|Store": { breed: "F1", cls: "Heifer", status: "Backgrounding", timing: "", other: "" },
+  "Cattle|F1|Steers|Store": { breed: "F1", cls: "Steer", status: "Backgrounding", timing: "", other: "" },
   "Sheep||Breeding ewes|Early": { breed: "", cls: "Ewe", status: "", timing: "SIL-Early", other: "" },
   "Sheep||Breeding ewes|Late": { breed: "", cls: "Ewe", status: "", timing: "SIL-Late", other: "" },
   "Sheep||Breeding ewes|MA": { breed: "", cls: "Ewe", status: "", timing: "", other: "" },
@@ -3417,7 +3420,11 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // "M/S" became "M/S Weaners", breed "X-bred" became "X-Bred". Safe to
   // press more than once; the card disappears when nothing's left to change.
   const NEW_BREED_LIST = [...NEW_BREEDS.Cattle, ...NEW_BREEDS.Sheep];
-  const mobsToRename = (data.mobs || []).filter((m) => m.cls === "M/S" || m.breed === "X-bred");
+  // Cattle status "Store" became "Backgrounding" — only for mobs already on
+  // the new scheme; an old-scheme mob keeps "Store" because the reclassify
+  // screen looks it up by its old name.
+  const isStoreToRename = (m) => m.species === "Cattle" && m.reclassified && m.status === "Store";
+  const mobsToRename = (data.mobs || []).filter((m) => m.cls === "M/S" || m.breed === "X-bred" || isStoreToRename(m));
   const listsUpToDate =
     JSON.stringify(settings.classes) === JSON.stringify(NEW_CLASSES) &&
     JSON.stringify(settings.statuses) === JSON.stringify(NEW_STATUSES) &&
@@ -3435,7 +3442,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         "mobs",
         data.mobs.map((m) =>
           ids.has(m.id)
-            ? { ...m, cls: m.cls === "M/S" ? "M/S Weaners" : m.cls, breed: m.breed === "X-bred" ? "X-Bred" : m.breed }
+            ? {
+                ...m,
+                cls: m.cls === "M/S" ? "M/S Weaners" : m.cls,
+                breed: m.breed === "X-bred" ? "X-Bred" : m.breed,
+                status: isStoreToRename(m) ? "Backgrounding" : m.status,
+              }
             : m
         )
       );
@@ -3443,7 +3455,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     try {
       logAudit(
         "Edit settings",
-        `Updated to the 8 Oct classification flow — class/status/breed lists replaced, ${mobsToRename.length} mob(s) renamed (M/S → M/S Weaners, X-bred → X-Bred)`,
+        `Updated to the 8 Oct classification flow — class/status/breed lists replaced, ${mobsToRename.length} mob(s) renamed (M/S → M/S Weaners, X-bred → X-Bred, cattle Store → Backgrounding)`,
         "settings"
       );
     } catch {}
@@ -7068,7 +7080,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 <div className="card-title">Update to the 8 Oct classification</div>
                 <p className="note">
                   Replaces the Class, Status and Breed lists in New/Edit mob and Sort with the new scheme (cattle
-                  Joined added, sheep Other breed added, "M/S" → "M/S Weaners"), and renames the {mobsToRename.length}{" "}
+                  Joined added and Store → Backgrounding, sheep Other breed and "M/S Lamb" added, "M/S" → "M/S
+                  Weaners"), and renames the {mobsToRename.length}{" "}
                   mob{mobsToRename.length === 1 ? "" : "s"} still using an old name. Nothing else about existing mobs
                   changes. Magenta's mobs keep their old classification until they're reclassified; the Class
                   dropdown will look unset for those until then, but saving them is unaffected.
