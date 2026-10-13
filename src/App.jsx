@@ -3611,7 +3611,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         cls: source.cls,
         species: source.species,
         loggedBy: userEmail || "unknown",
-        notes: "Died — recorded from the Yards",
+        notes: "Loss — recorded from the Yards",
       };
       newAdjustRecs.push(deathRec);
       const sDeath = summarise("adjust", deathRec);
@@ -3706,7 +3706,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const movedGroups = rows.filter((r) => !isOut(r)).length;
     if (movedHead) parts.push(`${movedHead.toLocaleString()} head into ${movedGroups} group${movedGroups === 1 ? "" : "s"}`);
     if (soldHead) parts.push(`${soldHead.toLocaleString()} sold`);
-    if (diedHead) parts.push(`${diedHead.toLocaleString()} died`);
+    if (diedHead) parts.push(`${diedHead.toLocaleString()} lost`);
     if (markMissing && remaining > 0) parts.push(`${remaining.toLocaleString()} marked missing`);
     flash(`Sorted — ${parts.join(" · ")}`);
   };
@@ -5276,7 +5276,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                     <option value="">Select…</option>
                     <option value={INBOX}>Yards (keep sorting)</option>
                     <option value={SORT_SOLD}>💲 Sold (to market)</option>
-                    <option value={SORT_DIED}>✝ Died</option>
+                    <option value={SORT_DIED}>✝ Losses</option>
                     {paddocksFor(sortMob.property).map((p) => (
                       <option key={p} value={p}>
                         {p}
@@ -5313,7 +5313,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 <p className="note" style={{ margin: "0 0 8px" }}>
                   {row.toPaddock === SORT_SOLD
                     ? "Recorded as a Sale to market off this mob."
-                    : "Recorded as a Deaths stock adjustment on this mob."}
+                    : "Recorded as a loss (Deaths stock adjustment) on this mob."}
                 </p>
               )}
               {classStatusWarning(row.cls, row.status) && row.toPaddock !== SORT_SOLD && row.toPaddock !== SORT_DIED && (
@@ -5690,7 +5690,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                           Sell
                         </button>
                         <button className="mini-btn danger" onClick={() => openSort(m, "died")}>
-                          Deaths
+                          Losses
                         </button>
                         <button className="mini-btn allocate" onClick={() => setActiveForm({ type: "moves", defaults: { mobId: m.id } })}>
                           Allocate
@@ -6533,7 +6533,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                               Sell
                             </button>
                             <button className="mini-btn danger" onClick={() => openSort(m, "died")}>
-                              Deaths
+                              Losses
                             </button>
                             <button
                               className="mini-btn allocate"
