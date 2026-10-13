@@ -7054,7 +7054,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               onReenter={(typeKey, defaults) => setActiveForm({ type: typeKey, defaults })}
               onDismiss={dismissLostEntry}
             />
-            <ActivityLog audit={data.audit || []} data={data} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} />
+            <ActivityLog audit={data.audit || []} data={data} properties={properties} propFilter={propFilter} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} />
           </>
         )}
       </main>
@@ -7218,18 +7218,62 @@ function LostEntries({ audit, data, properties, dismissed, onReenter, onDismiss 
   );
 }
 
-function ActivityLog({ audit, data, onEdit, onDelete }) {
+function ActivityLog({ audit, data, properties = [], propFilter = "All", onEdit, onDelete }) {
   const [who, setWho] = useState("All");
   const [actionType, setActionType] = useState("All");
+  const [prop, setProp] = useState(properties.includes(propFilter) ? propFilter : "All");
   const [limit, setLimit] = useState(100);
   const users = ["All", ...Array.from(new Set(audit.map((a) => a.user).filter(Boolean)))];
   const actionTypes = ["All", ...Array.from(new Set(audit.map((a) => a.action).filter(Boolean))).sort()];
+  // An entry doesn't store its property, so work it out: from the record it
+  // points at (its own property / from / to, or its mob's), and failing that
+  // (record since deleted, or a line with no record) from a property name in
+  // the entry's text. Entries with none of those show under "No property".
+  const propsByEntry = useMemo(() => {
+    const byId = {};
+    Object.keys(data || {}).forEach((k) => {
+      if (Array.isArray(data[k])) {
+        const m = new Map();
+        data[k].forEach((r) => r && r.id && m.set(r.id, r));
+        byId[k] = m;
+      }
+    });
+    const names = properties.map((p) => [p, String(p).trim().toLowerCase()]).filter(([, n]) => n);
+    const out = new Map();
+    audit.forEach((a) => {
+      const found = new Set();
+      const rec = a.typeKey && a.recordId ? byId[a.typeKey]?.get(a.recordId) : null;
+      if (rec) {
+        ["property", "fromProperty", "toProperty"].forEach((k) => rec[k] && found.add(rec[k]));
+        if (!found.size && rec.mobId) {
+          const mob = byId.mobs?.get(rec.mobId);
+          if (mob?.property) found.add(mob.property);
+        }
+      }
+      if (!found.size) {
+        const text = ((a.summary || "") + " " + (a.action || "")).toLowerCase();
+        names.forEach(([p, n]) => {
+          const i = text.indexOf(n);
+          if (i >= 0 && !/[a-z0-9]/.test(text.charAt(i - 1) || " ") && !/[a-z0-9]/.test(text.charAt(i + n.length) || " ")) found.add(p);
+        });
+      }
+      out.set(a.id, found);
+    });
+    return out;
+  }, [audit, data, properties]);
+  const propOptions = ["All", ...properties, "No property"];
   const fmt = (ts) => {
     const d = new Date(ts);
     const p = (n) => String(n).padStart(2, "0");
     return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
   };
-  const matches = (a) => (who === "All" || a.user === who) && (actionType === "All" || a.action === actionType);
+  const matches = (a) => {
+    if (who !== "All" && a.user !== who) return false;
+    if (actionType !== "All" && a.action !== actionType) return false;
+    if (prop === "All") return true;
+    const found = propsByEntry.get(a.id);
+    return prop === "No property" ? !found || found.size === 0 : !!found && found.has(prop);
+  };
   const rows = audit.filter(matches).slice(0, limit);
   return (
     <section className="card">
@@ -7246,6 +7290,13 @@ function ActivityLog({ audit, data, onEdit, onDelete }) {
         <select value={actionType} onChange={(e) => setActionType(e.target.value)}>
           {actionTypes.map((t) => (
             <option key={t}>{t}</option>
+          ))}
+        </select>
+        <select value={prop} onChange={(e) => setProp(e.target.value)} aria-label="Property">
+          {propOptions.map((p) => (
+            <option key={p} value={p}>
+              {p === "All" ? "All properties" : p}
+            </option>
           ))}
         </select>
       </div>
