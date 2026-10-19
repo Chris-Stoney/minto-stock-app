@@ -30,6 +30,7 @@ const KEYS = {
   menu: "mp2:menu",
   calendar: "mp2:calendar",
   spendRequest: "mp2:spendRequest",
+  jobs: "mp2:jobs",
   audit: "mp2:audit",
   dismissedLost: "mp2:dismissedLost",
   settings: "mp2:settings-v5",
@@ -63,7 +64,7 @@ const DEFAULT_TEAM = [
 const DEFAULT_CONTRACTORS = [];
 const TEAM_ROLES = ["GM", "Contract Operations Manager", "Office", "Stock Agent", "Tech"];
 const SPEND_TYPES = ["CAP EX", "Maintenance"];
-const ASSET_INFRA_BRANCHED_TYPES = ["spendRequest", "maint"];
+const ASSET_INFRA_BRANCHED_TYPES = ["spendRequest", "maint", "jobs"];
 const DEFAULT_ASSET_TYPES = ["Vehicles", "Machinery / Equipment"];
 const DEFAULT_PROPERTY_ELEMENTS = ["Water", "Yards", "Fence", "Buildings"];
 
@@ -656,6 +657,7 @@ const TAG = {
   menu: "#B0743A",
   calendar: "#C25E1F",
   spendRequest: "#2E7F8F",
+  jobs: "#6B7F3A",
   toolboxTalk: "#455A64",
 };
 
@@ -1037,6 +1039,31 @@ const RECORD_TYPES = {
       { key: "isMajorProject", label: "Major project — needs a Purchase Order?", type: "select", options: ["No", "Yes — raise a PO"] },
     ],
   },
+  // The job list: everything that needs doing. A PO is raised from a job (the
+  // job remembers it as poId, the PO remembers the job as jobId), and logging
+  // the work done closes the job.
+  jobs: {
+    label: "Jobs",
+    single: "Job",
+    tag: TAG.jobs,
+    fields: [
+      { key: "date", label: "Date raised", type: "date" },
+      { key: "title", label: "What needs doing", type: "text" },
+      { key: "property", label: "Property", type: "property" },
+      { key: "category", label: "Assets or infrastructure", type: "select", options: ["Assets", "Infrastructure"] },
+      { key: "assetType", label: "Asset type", type: "select", optionsFrom: "assetTypes", showIf: (v) => v.category === "Assets" },
+      { key: "assetId", label: "Asset", type: "asset", showIf: (v) => v.category === "Assets" },
+      { key: "propertyElement", label: "Property element", type: "select", optionsFrom: "propertyElements", optional: true, showIf: (v) => v.category === "Infrastructure" },
+      { key: "locationText", label: "Where on the property", type: "text", optional: true, showIf: (v) => v.category === "Infrastructure" },
+      { key: "spendType", label: "Spend type", type: "select", options: ["Maintenance", "Capex"], optional: true },
+      { key: "priority", label: "Priority", type: "select", options: ["Urgent", "Normal", "Low"], optional: true },
+      { key: "assignedTo", label: "Assigned to", type: "team", optional: true },
+      { key: "dueDate", label: "Due by", type: "date", optional: true },
+      { key: "estCost", label: "Estimated cost ($ ex GST)", type: "number", optional: true },
+      { key: "details", label: "Details / fault note", type: "textarea", optional: true },
+      { key: "status", label: "Status", type: "select", options: ["To do", "In progress", "Done"], optional: true },
+    ],
+  },
   pasture: {
     label: "Pasture",
     single: "Pasture record",
@@ -1324,7 +1351,9 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, statuses,
         const assetFields = ["assetType", "assetId", "meterReading", "faultNote"];
         // "property" for maint (still singular), "properties" for
         // spendRequest (propertyset, since a request can span several).
-        const infraFields = ["property", "properties", "propertyElement", "locationText"];
+        // A job always keeps its property (assets live at a property too).
+        const infraFields =
+          typeKey === "jobs" ? ["propertyElement", "locationText"] : ["property", "properties", "propertyElement", "locationText"];
         (v === "Assets" ? infraFields : assetFields).forEach((f) => delete next[f]);
       }
       // Changing asset type invalidates whichever specific asset was picked
@@ -2709,6 +2738,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     menu: [],
     calendar: [],
     spendRequest: [],
+    jobs: [],
     marking: [],
     weaning: [],
     pregtest: [],
@@ -2730,6 +2760,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const [sortErr, setSortErr] = useState("");
   const [sortBuyer, setSortBuyer] = useState(""); // buyer / saleyard for any "Sold" group
   const [openMaintId, setOpenMaintId] = useState(null);
+  const [jobFilter, setJobFilter] = useState("Open"); // Open | Done | All
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState(null); // { message, onYes }
   const [commentary, setCommentary] = useState({ prop: "", text: "", loading: false });
@@ -2825,6 +2856,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       // exactly the kind of place a silent off-by-one bug hides.
       const paddockTreatmentData = raced === "__SLOW__" ? [] : await loadKey(KEYS.paddockTreatment, []);
       const toolboxTalkData = raced === "__SLOW__" ? [] : await loadKey(KEYS.toolboxTalk, []);
+      const jobsData = raced === "__SLOW__" ? [] : await loadKey(KEYS.jobs, []);
       setData({
         mobs: fromBaseline(mobs, "mobs"),
         moves: fromBaseline(moves, "moves"),
@@ -2849,6 +2881,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         dismissedLost: dismissedLostData,
         paddockTreatment: paddockTreatmentData,
         toolboxTalk: toolboxTalkData,
+        jobs: jobsData,
       });
       setSettings({
         properties: st?.properties || DEFAULT_PROPERTIES,
@@ -2891,7 +2924,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const keys = [
       "mobs", "moves", "health", "rain", "trucking", "maint", "pasture", "paddockTreatment", "toolboxTalk", "adjust",
       "orders", "musters", "menu", "marking", "weaning", "pregtest", "pdkuse",
-      "shearing", "woolsale", "calendar", "spendRequest", "audit", "dismissedLost",
+      "shearing", "woolsale", "calendar", "spendRequest", "jobs", "audit", "dismissedLost",
     ];
     const refresh = async () => {
       if (STORAGE.mode === "memory") return;
@@ -4059,6 +4092,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     if (typeKey === "orders") {
       rec.status = "Pending";
       rec.requestedBy = me || "";
+      // A PO raised from a job: the job remembers it, so the job list can show
+      // where the approval has got to.
+      if (rec.jobId && (data.jobs || []).some((j) => j.id === rec.jobId)) {
+        setAndSave("jobs", data.jobs.map((j) => (j.id === rec.jobId ? { ...j, poId: rec.id } : j)));
+      }
+    }
+    // Work logged against a job closes it.
+    if (typeKey === "maint" && rec.jobId && (data.jobs || []).some((j) => j.id === rec.jobId)) {
+      setAndSave("jobs", data.jobs.map((j) => (j.id === rec.jobId ? { ...j, status: "Done", doneAt: Date.now() } : j)));
     }
     if (typeKey === "marking") {
       const mum = mobById(rec.mobId);
@@ -4339,6 +4381,52 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     flash("Order " + decision.toLowerCase());
   };
 
+  // ---- Job list helpers ----
+  const jobAssetOf = (job) => (job.assetId ? (settings.assets || []).find((a) => a.id === job.assetId) : null);
+  const jobPO = (job) => (job.poId ? (data.orders || []).find((o) => o.id === job.poId) : null);
+  // Raise a PO from a job: opens the normal PO form pre-filled from the job.
+  const raiseJobPO = (job) => {
+    const asset = jobAssetOf(job);
+    const what = [job.title, asset?.name || job.propertyElement].filter(Boolean).join(" — ");
+    setActiveForm({
+      type: "orders",
+      defaults: {
+        property: job.property || asset?.property || "",
+        category: job.spendType === "Capex" || job.spendType === "CAP EX" ? "Capex" : "Maintenance",
+        item: what,
+        amount: job.estCost || "",
+        notes: job.details || "",
+        jobId: job.id,
+      },
+    });
+  };
+  const startJob = (job) => {
+    setAndSave("jobs", data.jobs.map((j) => (j.id === job.id ? { ...j, status: "In progress" } : j)));
+    try {
+      logAudit("Job started", job.title || "Job", "jobs", job.id);
+    } catch {}
+    flash("Job started");
+  };
+  // Logging the work is how a job is closed: the Maintenance form opens
+  // pre-filled and saving it marks the job Done (see saveRecord).
+  const logJobWork = (job) => {
+    const po = jobPO(job);
+    setActiveForm({
+      type: "maint",
+      defaults: {
+        category: job.category || "Infrastructure",
+        assetType: job.assetType,
+        assetId: job.assetId,
+        property: job.property,
+        propertyElement: job.propertyElement,
+        locationText: job.locationText,
+        work: job.title,
+        cost: po && po.status === "Approved" ? po.amount : job.estCost || "",
+        jobId: job.id,
+      },
+    });
+  };
+
   const markNlisRecorded = (id) => {
     const trucking = data.trucking.map((t) => (t.id === id ? { ...t, nlis: "Recorded on NLIS" } : t));
     setAndSave("trucking", trucking);
@@ -4518,6 +4606,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const message =
       typeKey === "spendRequest" && existing?.linkedOrderId
         ? `Delete this request? Its linked Purchase Order (${existing.poNumber || "already raised"}) will NOT be deleted — remove it separately from Recs → Purchase orders if needed.`
+        : typeKey === "jobs" && existing?.poId
+        ? "Delete this job? Its Purchase Order will NOT be deleted — remove it separately from Recs → Purchase orders if needed."
         : goesNegative.length
         ? `⚠ Undoing this would take ${negativeNote(goesNegative)} below zero — those sheep have probably been sold, moved or adjusted since. Undo anyway?`
         : reverses
@@ -4716,6 +4806,22 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             r.category === "Assets" ? spendAsset?.name : r.propertyElement,
             r.property,
             r.isMajorProject === "Yes — raise a PO" ? "PO required" + (r.poNumber ? " · " + r.poNumber : "") : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        };
+      }
+      case "jobs": {
+        const jobAsset = r.assetId ? (settings.assets || []).find((a) => a.id === r.assetId) : null;
+        return {
+          title: r.title || "Job",
+          sub: [
+            r.status || "To do",
+            r.priority === "Urgent" ? "Urgent" : "",
+            r.property,
+            r.category === "Assets" ? jobAsset?.name : r.propertyElement,
+            r.assignedTo,
+            r.dueDate ? "due " + fmtDate(r.dueDate) : "",
           ]
             .filter(Boolean)
             .join(" · "),
@@ -6708,6 +6814,88 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <div className="section-head">
               <h2>Maintenance & Cap Ex</h2>
             </div>
+            {(() => {
+              const all = byProp(data.jobs || []);
+              const prioRank = { Urgent: 0, Normal: 1, Low: 2 };
+              const jobs = all
+                .filter((j) => (jobFilter === "All" ? true : jobFilter === "Done" ? j.status === "Done" : j.status !== "Done"))
+                .sort(
+                  (a, b) =>
+                    (prioRank[a.priority || "Normal"] ?? 1) - (prioRank[b.priority || "Normal"] ?? 1) ||
+                    String(a.dueDate || "9999").localeCompare(String(b.dueDate || "9999")) ||
+                    num(b.createdAt) - num(a.createdAt)
+                );
+              const openN = all.filter((j) => j.status !== "Done").length;
+              return (
+                <section className="card">
+                  <div className="card-title">
+                    Job list <span className="card-title-n">{openN} open</span>
+                    <button className="btn primary sm" onClick={() => setActiveForm({ type: "jobs", defaults: { status: "To do", priority: "Normal" } })}>
+                      + Add job
+                    </button>
+                  </div>
+                  <p className="note">
+                    Everything that needs doing. Raise a PO straight from a job; when the work's done, tap Log work and the job closes.
+                  </p>
+                  <div className="tag-chips" style={{ marginBottom: 8 }}>
+                    {["Open", "Done", "All"].map((f) => (
+                      <button type="button" key={f} className={"tag-chip" + (jobFilter === f ? " on" : "")} onClick={() => setJobFilter(f)}>
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                  {jobs.length === 0 && <div className="empty">{jobFilter === "Open" ? "No open jobs." : jobFilter === "Done" ? "No finished jobs yet." : "No jobs yet."}</div>}
+                  {jobs.map((j) => {
+                    const su = summarise("jobs", j);
+                    const po = jobPO(j);
+                    const poLabel = po ? (po.status === "Approved" ? "PO approved" : po.status === "Declined" ? "PO declined" : "PO awaiting approval") : "";
+                    const poColour = po?.status === "Approved" ? "#2F7D3A" : po?.status === "Declined" ? "#B03A2E" : "#C25E1F";
+                    return (
+                      <div key={j.id} style={{ borderBottom: "1px solid #F0EEE6", padding: "8px 0" }}>
+                        <div className="act-title">
+                          {j.title}
+                          {j.priority === "Urgent" && <span style={{ color: "#B03A2E", fontWeight: 700 }}> · URGENT</span>}
+                        </div>
+                        <div className="act-sub">
+                          {su.sub}
+                          {j.estCost ? " · est $" + num(j.estCost).toLocaleString() : ""}
+                        </div>
+                        {po && (
+                          <div className="act-sub" style={{ color: poColour, fontWeight: 600 }}>
+                            {poLabel}
+                            {po.amount ? " · $" + num(po.amount).toLocaleString() : ""}
+                            {po.supplier ? " · " + po.supplier : ""}
+                          </div>
+                        )}
+                        <div className="btn-row" style={{ marginTop: 6, justifyContent: "flex-start", flexWrap: "wrap" }}>
+                          {j.status !== "Done" && (!po || po.status === "Declined") && (
+                            <button className="mini-btn allocate" onClick={() => raiseJobPO(j)}>
+                              Raise PO
+                            </button>
+                          )}
+                          {(!j.status || j.status === "To do") && (
+                            <button className="mini-btn" onClick={() => startJob(j)}>
+                              Start
+                            </button>
+                          )}
+                          {j.status !== "Done" && (
+                            <button className="mini-btn" onClick={() => logJobWork(j)}>
+                              Log work ✓
+                            </button>
+                          )}
+                          <button className="mini-btn" onClick={() => editRecordFromLog("jobs", j.id)}>
+                            Edit
+                          </button>
+                          <button className="mini-btn danger" onClick={() => deleteRecordFromLog("jobs", j.id)}>
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </section>
+              );
+            })()}
             <section className="card">
               <div className="card-title">Raise a spend request</div>
               <p className="note">Choose the spend type to start — you'll then pick Assets or Infrastructure and only see the fields that apply.</p>
@@ -7787,6 +7975,7 @@ function QuickAdd({ onPick }) {
     ["woolsale", "Wool trucked"],
     ["adjust", "Deaths / adjustment"],
     ["maint", "Maintenance"],
+    ["jobs", "Job (to-do list)"],
     ["musters", "Muster / job"],
     ["calendar", "Calendar event"],
     ["menu", "Menu"],
