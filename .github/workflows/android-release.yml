@@ -44,9 +44,13 @@ jobs:
           echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           AAB=$(find android -name "*.aab" | head -1)
           echo "Signing $AAB"
+          # The keystore is PKCS12, where Java uses the keystore password for the
+          # key too (a separate -keypass is ignored when the key is created), so
+          # the key password is the keystore password. ANDROID_KEY_PASSWORD is
+          # not used.
           jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
             -keystore "$RUNNER_TEMP/upload.jks" \
-            -storepass "$KS_PASS" -keypass "$KEY_PASS" \
+            -storepass "$KS_PASS" -keypass "$KS_PASS" \
             "$AAB" "$KEY_ALIAS"
           jarsigner -verify "$AAB" && echo "Signature verified."
           cp "$AAB" "minto-farm-records-release.aab"
