@@ -80,9 +80,28 @@ create table stock_class (
   sex              sex,
   age_band         text,
   breeding         boolean,
-  becomes          text references stock_class (code),
+  app_class        text,               -- the class name in the app (NEW_CLASSES), the master list
+  unique (species, app_class)
+);
+
+-- The spec puts one `becomes` on each class, but transitions branch
+-- (M/S weaners become heifers or steers), so they get their own table.
+create table class_transition (
+  from_class       text not null references stock_class (code),
+  to_class         text not null references stock_class (code),
+  at_event         event_type,          -- the event that triggers it, e.g. weaning
   transition_rule  text,
-  dse_rating       numeric check (dse_rating >= 0)
+  primary key (from_class, to_class)
+);
+
+-- The app keeps status (Joined, PTIC, Wet, Dry...) apart from class, and its
+-- DSE depends on both. status = '' is the class's plain value, used for any
+-- status not listed (matches dseFor in the app).
+create table class_dse (
+  stock_class  text not null references stock_class (code),
+  status       text not null default '',
+  dse          numeric not null check (dse >= 0),
+  primary key (stock_class, status)
 );
 
 -- ---------- Phase 1.1: reference tables ----------
