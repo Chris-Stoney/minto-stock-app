@@ -113,7 +113,8 @@ create table property (
   pic       text,
   tenure    tenure not null,
   area_ha   numeric check (area_ha >= 0),
-  app_name  text unique             -- the property's name in the app (store key settings-v5.properties)
+  app_name  text                    -- the app's property name; one app property can span several
+                                    -- legal ones (app Minto = Minto Glen + Minto Park), so not unique
 );
 
 -- Paddock names repeat across properties, so the code must be globally unique
@@ -134,6 +135,14 @@ create table location (
   check ((type = 'owned_property') = (property is not null))
 );
 
+-- The budget is cut by enterprise (Northern Sheep, Finished Lamb, Trading
+-- Cattle...), which neither the spec nor the app carries yet.
+create table enterprise (
+  code     text primary key,
+  name     text not null,
+  species  species
+);
+
 -- Referenced by the spec but never defined there. Minimal on purpose:
 -- the app stays authoritative for mobs; app_mob_id links back to it.
 create table mob (
@@ -141,6 +150,7 @@ create table mob (
   name         text not null,
   entity       text not null references entity (code),
   stock_class  text references stock_class (code),
+  enterprise   text references enterprise (code),
   app_mob_id   text unique
 );
 
@@ -257,6 +267,7 @@ create table cost (
   stock_class    text references stock_class (code),
   mob            text references mob (code),
   property       text references property (code),   -- not in the spec; see PR notes
+  enterprise     text references enterprise (code),
   paddock        text references paddock (code),
   treatment      cost_treatment not null,
   asset          text references asset (code),
@@ -279,6 +290,7 @@ create table income (
   amount_ex_gst  numeric not null,          -- GROSS: before commission, freight, levies
   gst_code       text not null references gst_code (code),
   stock_class    text references stock_class (code),
+  enterprise     text references enterprise (code),
   head           integer check (head >= 0),
   weight_kg      numeric check (weight_kg >= 0),
   stage          income_stage not null,
@@ -501,7 +513,7 @@ create view stock_reconciliation_breaks as
 -- ---------- access: same rule as public.store (signed-in team only) ----------
 grant usage on schema budget to authenticated;
 grant select, insert on all tables in schema budget to authenticated;
-grant update, delete on entity, stock_class, property, paddock, location, mob, gst_code,
+grant update, delete on entity, stock_class, class_transition, class_dse, property, paddock, location, enterprise, mob, gst_code,
   account, asset, loan, trading_account, scenario, agreement, assumption, price to authenticated;
 
 do $$
