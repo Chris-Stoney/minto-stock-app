@@ -433,6 +433,14 @@ const composeName = (m) =>
 // identical on screen would otherwise silently fail to match.
 const sameDescription = (a, b) => composeName(a).trim().toLowerCase() === composeName(b).trim().toLowerCase();
 
+// Same stock apart from where it came from: species, breed, tag colour (year
+// born), class, status, timing and other all match, origin may differ. Used to
+// offer "Combine" for mobs that were bought or mustered in separately.
+const normField = (v) => String(v || "").trim().toLowerCase();
+const sameClassification = (a, b) =>
+  ["species", "breed", "tag", "cls", "status", "timing", "other"].every((k) => normField(a[k]) === normField(b[k]));
+const canCombine = (a, b) => sameDescription(a, b) || sameClassification(a, b);
+
 // Classes and DSE ratings taken from the 1 July 2026 paddock sheets
 const DEFAULT_CLASSES = {
   Sheep: [
@@ -4278,14 +4286,35 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     const keep = data.mobs.find((m) => m.id === keepId);
     const merge = data.mobs.find((m) => m.id === mergeId);
     if (!keep || !merge) return;
-    ask(`Combine into one mob? ${num(keep.head).toLocaleString()} + ${num(merge.head).toLocaleString()} = ${(num(keep.head) + num(merge.head)).toLocaleString()}.`, () => {
-      const mobs = data.mobs
-        .map((m) => (m.id === keepId ? { ...m, head: num(m.head) + num(merge.head) } : m))
-        .filter((m) => m.id !== mergeId);
-      setAndSave("mobs", mobs);
-      logAudit("Combine mobs", composeName(keep) + " — " + (keep.property || "") + ` (${num(keep.head).toLocaleString()} + ${num(merge.head).toLocaleString()})`, "mobs", keepId);
-      flash("Combined into one mob");
+    // Same classification but different origins (e.g. two lots bought from
+    // different places): keep both on the combined mob's origin, joined with
+    // " + ", so where it came from isn't lost. Identical origins stay as-is.
+    const origins = [];
+    [keep.origin, merge.origin].forEach((o) => {
+      const t = String(o || "").trim();
+      if (t && !origins.some((x) => x.toLowerCase() === t.toLowerCase())) origins.push(t);
     });
+    const mergedOrigin = origins.join(" + ");
+    const originChanges = mergedOrigin !== String(keep.origin || "").trim();
+    const total = num(keep.head) + num(merge.head);
+    ask(
+      `Combine into one mob? ${num(keep.head).toLocaleString()} + ${num(merge.head).toLocaleString()} = ${total.toLocaleString()}.` +
+        (originChanges ? ` The origin becomes "${mergedOrigin}" — you can shorten it afterwards with Edit.` : ""),
+      () => {
+        const mobs = data.mobs
+          .map((m) => (m.id === keepId ? { ...m, head: total, origin: mergedOrigin || m.origin } : m))
+          .filter((m) => m.id !== mergeId);
+        setAndSave("mobs", mobs);
+        logAudit(
+          "Combine mobs",
+          composeName(keep) + " — " + (keep.property || "") + ` (${num(keep.head).toLocaleString()} + ${num(merge.head).toLocaleString()})` +
+            (originChanges ? ` · origins: ${mergedOrigin}` : ""),
+          "mobs",
+          keepId
+        );
+        flash("Combined into one mob");
+      }
+    );
   };
 
   const deleteMob = (id) => {
@@ -5943,7 +5972,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                     {prop} <span className="card-title-n">{head.toLocaleString()} hd</span>
                   </div>
                   {list.map((m) => {
-                    const dup = list.find((x) => x.id !== m.id && x.paddock === m.paddock && sameDescription(x, m));
+                    const dup = list.find((x) => x.id !== m.id && x.paddock === m.paddock && canCombine(x, m));
                     return (
                     <div className="mob-row" key={m.id}>
                       <div className="mob-info" style={{ cursor: "pointer" }} onClick={() => setViewMob(m)}>
@@ -6584,7 +6613,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                             </div>
                           )}
                           {inPdk.map((m) => {
-                            const dup = inPdk.find((x) => x.id !== m.id && sameDescription(x, m));
+                            const dup = inPdk.find((x) => x.id !== m.id && canCombine(x, m));
                             return (
                             <div className="pdk-mob-block" key={m.id}>
                               <div className="pdk-mob">
