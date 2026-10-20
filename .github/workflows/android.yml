@@ -14,6 +14,7 @@ on:
       - "capacitor.config.json"
       - "index.html"
       - ".github/workflows/android.yml"
+      - "scripts/android-patch.sh"
 
 jobs:
   build:
@@ -33,6 +34,9 @@ jobs:
 
       - name: Add Android platform
         run: npx cap add android
+
+      - name: Patch Android project for Play (SDK 36, minSdk 24, edge-to-edge)
+        run: bash scripts/android-patch.sh ${{ github.run_number }}
 
       - name: Generate app icon + splash screen
         run: npx --yes @capacitor/assets@3.0.5 generate --android --iconBackgroundColor '#2F4A33' --splashBackgroundColor '#2F4A33' --splashBackgroundColorDark '#172319'
