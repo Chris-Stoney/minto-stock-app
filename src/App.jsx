@@ -533,8 +533,8 @@ const NEW_STATUSES = {
 // show on the main Calendar. Same three stored fields for both species
 // (joinDate / dueDate / testDate / sellDate) — only the label differs.
 const NEW_DATE_FIELDS = {
-  Cattle: [["joinDate", "Assumed joining"], ["dueDate", "Due"], ["testDate", "Preg Test"], ["sellDate", "Sell"]],
-  Sheep: [["joinDate", "Assumed joining"], ["dueDate", "Due to lamb"], ["testDate", "Scanned"], ["sellDate", "Sell"]],
+  Cattle: [["joinDate", "Joining"], ["dueDate", "Due"], ["testDate", "Preg Test"], ["sellDate", "Sell"]],
+  Sheep: [["joinDate", "Joining"], ["dueDate", "Due to lamb"], ["testDate", "Scanned"], ["sellDate", "Sell"]],
 };
 const MOB_DATE_COLOR = { joinDate: "#2E7F8F", dueDate: "#5C8A4E", testDate: "#A85C7A", sellDate: "#7D4E9E" };
 // Breeding statuses on a class that doesn't breed is almost certainly a
@@ -5435,7 +5435,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           rows.push({ property: prop, paddock, species, cls, status, timing, other, tag, year, join, due, test, sell, head });
         });
     });
-    const header = ["Property", "Paddock", "Species", "Class", "Status", "Timing", "Other", "Tag colour", "Year", "Assumed joining", "Due", "Preg test / Scanned", "Sell", "Head"];
+    const header = ["Property", "Paddock", "Species", "Class", "Status", "Timing", "Other", "Tag colour", "Year", "Joining", "Due", "Preg test / Scanned", "Sell", "Head"];
     const lines = [header.join(",")];
     rows.forEach((r) =>
       lines.push(
