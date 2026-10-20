@@ -38,6 +38,19 @@ const KEYS = {
 
 const DEFAULT_PROPERTIES = ["Minto", "Linleigh", "Dunbar", "Buckanbe", "Wirrealpa", "Innaminka", "Magenta"];
 
+// A colour per property, shown on the Maint tab (jobs, spend requests, work log)
+// so each property's jobs can be picked out at a glance. Changeable in Setup;
+// a property not listed here (a newly added one) gets the grey fallback until
+// someone picks a colour.
+const DEFAULT_PROPERTY_COLOURS = {
+  Minto: "#2F7D4F",
+  Linleigh: "#C25E1F",
+  Dunbar: "#3E7CB1",
+  Buckanbe: "#7D4E9E",
+  Wirrealpa: "#B03A2E",
+  Innaminka: "#D99D0B",
+  Magenta: "#B5398A",
+};
 const DEFAULT_BREEDS = ["Merino", "XB", "Dorper", "Dorset", "Ultra", "Angus", "F1", "Hereford", "Composite"];
 const DEFAULT_TAGS = [
   "Black tag",
@@ -2898,6 +2911,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         assets: st?.assets || [],
         assetTypes: st?.assetTypes || DEFAULT_ASSET_TYPES,
         propertyElements: st?.propertyElements || DEFAULT_PROPERTY_ELEMENTS,
+        propertyColours: st?.propertyColours || {},
       });
       try {
         const meR = await window.storage.get("mp2:me", false);
@@ -4382,6 +4396,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   };
 
   // ---- Job list helpers ----
+  const propColour = (p) => (settings.propertyColours || {})[p] || DEFAULT_PROPERTY_COLOURS[p] || "#8B887A";
   const jobAssetOf = (job) => (job.assetId ? (settings.assets || []).find((a) => a.id === job.assetId) : null);
   const jobPO = (job) => (job.poId ? (data.orders || []).find((o) => o.id === job.poId) : null);
   // Raise a PO from a job: opens the normal PO form pre-filled from the job.
@@ -6814,6 +6829,17 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <div className="section-head">
               <h2>Maintenance & Cap Ex</h2>
             </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "0 0 10px" }}>
+              {properties.map((p) => (
+                <span
+                  key={p}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: "#23281F", background: "#fff", border: "1px solid #E4E1D6", borderRadius: 999, padding: "2px 9px" }}
+                >
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: propColour(p), display: "inline-block" }} />
+                  {p}
+                </span>
+              ))}
+            </div>
             {(() => {
               const all = byProp(data.jobs || []);
               const prioRank = { Urgent: 0, Normal: 1, Low: 2 };
@@ -6851,7 +6877,10 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                     const poLabel = po ? (po.status === "Approved" ? "PO approved" : po.status === "Declined" ? "PO declined" : "PO awaiting approval") : "";
                     const poColour = po?.status === "Approved" ? "#2F7D3A" : po?.status === "Declined" ? "#B03A2E" : "#C25E1F";
                     return (
-                      <div key={j.id} style={{ borderBottom: "1px solid #F0EEE6", padding: "8px 0" }}>
+                      <div
+                        key={j.id}
+                        style={{ borderBottom: "1px solid #F0EEE6", borderLeft: "5px solid " + propColour(j.property), padding: "8px 0 8px 10px", marginBottom: 2 }}
+                      >
                         <div className="act-title">
                           {j.title}
                           {j.priority === "Urgent" && <span style={{ color: "#B03A2E", fontWeight: 700 }}> · URGENT</span>}
@@ -6921,7 +6950,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   {reqs.map((r) => {
                     const su = summarise("spendRequest", r);
                     return (
-                      <div className="rain-row" key={r.id}>
+                      <div className="rain-row" key={r.id} style={{ borderLeft: "5px solid " + propColour(r.property), paddingLeft: 10 }}>
                         <span>
                           {su.title}
                           <span className="whp-date"> · {fmtDate(r.date)}{su.sub ? " · " + su.sub : ""}</span>
@@ -6974,7 +7003,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 return (
                   <div key={r.id} style={{ borderBottom: "1px solid #F0EEE6" }}>
                     <div className="act-row" style={{ cursor: "pointer", borderBottom: "none" }} onClick={() => setOpenMaintId(open ? null : r.id)}>
-                      <span className="act-dot" style={{ background: TAG.maint }} />
+                      <span className="act-dot" style={{ background: r.property ? propColour(r.property) : TAG.maint }} />
                       <div className="act-body" style={{ flex: 1 }}>
                         <div className="act-title">{su.title}</div>
                         <div className="act-sub">
@@ -7096,6 +7125,18 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               {properties.map((p) => (
                 <div className="rain-row" key={p}>
                   <span className="prop-name">{p}</span>
+                  <input
+                    type="color"
+                    aria-label={p + " colour"}
+                    title="Colour used on the Maint tab"
+                    value={propColour(p)}
+                    style={{ width: 34, height: 28, padding: 0, border: "1px solid #D8D5C8", borderRadius: 6, background: "none", flexShrink: 0 }}
+                    onChange={(e) => {
+                      const next = { ...settings, propertyColours: { ...(settings.propertyColours || {}), [p]: e.target.value } };
+                      setSettings(next);
+                      saveKey(KEYS.settings, next);
+                    }}
+                  />
                   <input
                     className="pic-input"
                     placeholder="PIC (NLIS)"
