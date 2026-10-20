@@ -686,6 +686,12 @@ const num = (v) => (isNaN(parseFloat(v)) ? 0 : parseFloat(v));
 // Average pregnancy length, used to work out when a mob is due from its joining
 // date (ewes ~147 days, cows ~283). The Due date can always be overtyped.
 const GESTATION_DAYS = { Sheep: 147, Cattle: 283 };
+// Rams run with the ewes all year, so a mob often has no real joining date. A
+// pregnancy only shows on a scan from about 6 weeks, so a mob scanned on date S
+// is assumed to have been joined SCAN_DETECT_DAYS before S: due = S + 147 - 42.
+// Only used for sheep with no joining date entered.
+const SCAN_DETECT_DAYS = 42;
+const dueFromScan = (scanDate) => addDaysStr(scanDate, GESTATION_DAYS.Sheep - SCAN_DETECT_DAYS);
 const addDaysStr = (dateStr, n) => {
   if (!dateStr) return "";
   const [y, m, d] = String(dateStr).split("-").map(Number);
@@ -1732,6 +1738,13 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
         const oldAuto = s.joinDate && g ? addDaysStr(s.joinDate, g) : "";
         if (g && v && (!s.dueDate || s.dueDate === oldAuto)) next.dueDate = addDaysStr(v, g);
       }
+      // Sheep scanned but with no joining date (rams run all year): assume they
+      // were joined SCAN_DETECT_DAYS before the scan and work the due date out
+      // from that, unless a due date was typed by hand.
+      if (k === "testDate" && next.species === "Sheep" && !next.joinDate && v) {
+        const oldAuto = s.testDate ? dueFromScan(s.testDate) : "";
+        if (!s.dueDate || s.dueDate === oldAuto) next.dueDate = dueFromScan(v);
+      }
       return next;
     });
   const submit = () => {
@@ -1815,6 +1828,16 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
             {vals.dueDate && vals.dueDate !== addDaysStr(vals.joinDate, GESTATION_DAYS[vals.species])
               ? " The Due date above has been set by hand."
               : " It's filled in for you; change it if you know better."}
+          </p>
+        )}
+        {!vals.joinDate && vals.species === "Sheep" && vals.testDate && (
+          <p className="note" style={{ margin: "2px 0 0" }}>
+            No joining date (rams run all year), so they're assumed to have been joined {SCAN_DETECT_DAYS} days before the scan — about{" "}
+            <b>{fmtDate(addDaysStr(vals.testDate, -SCAN_DETECT_DAYS))}</b> — which puts lambing from around{" "}
+            <b>{fmtDate(dueFromScan(vals.testDate))}</b>.
+            {vals.dueDate && vals.dueDate !== dueFromScan(vals.testDate)
+              ? " The Due date above has been set by hand."
+              : " It's filled in for you; enter a real joining date if you have one."}
           </p>
         )}
       </div>
@@ -2156,6 +2179,19 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
           add(addDaysStr(m.joinDate, g), {
             type: "mobs",
             label: (m.species === "Sheep" ? "Due to lamb" : "Due") + " (expected) — " + composeName(m),
+            sub: [m.property, m.paddock && paddockLabel(m.paddock), num(m.head).toLocaleString() + " hd"].filter(Boolean).join(" · "),
+            color: MOB_DATE_COLOR.dueDate,
+            propColor: colorForPerson(m.property),
+            rec: m,
+            editable: true,
+          });
+        }
+        // Sheep scanned but no joining date (rams in all year): assumed joined
+        // SCAN_DETECT_DAYS before the scan, so show when lambing would start.
+        if (m.species === "Sheep" && m.testDate && !m.joinDate && !m.dueDate) {
+          add(dueFromScan(m.testDate), {
+            type: "mobs",
+            label: "Due to lamb (assumed from scan) — " + composeName(m),
             sub: [m.property, m.paddock && paddockLabel(m.paddock), num(m.head).toLocaleString() + " hd"].filter(Boolean).join(" · "),
             color: MOB_DATE_COLOR.dueDate,
             propColor: colorForPerson(m.property),
