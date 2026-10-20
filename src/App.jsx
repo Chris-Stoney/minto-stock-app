@@ -3191,8 +3191,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // Managers-only audit trail: stamps every action with the signed-in login.
   // Routed through setAndSave (not a direct save) so two people logging
   // actions seconds apart both land instead of one overwriting the other.
-  const logAudit = (action, summary, typeKey, recordId) => {
-    const entry = { id: uid(), ts: Date.now(), user: userEmail || "unknown", action, summary: summary || "", typeKey, recordId };
+  const logAudit = (action, summary, typeKey, recordId, extra) => {
+    const entry = { id: uid(), ts: Date.now(), user: userEmail || "unknown", action, summary: summary || "", typeKey, recordId, ...(extra || {}) };
     setAndSave("audit", [entry, ...(data.audit || [])].slice(0, 2000));
   };
 
@@ -4443,8 +4443,32 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         "mobs",
         data.mobs.filter((m) => m.id !== id)
       );
-      logAudit("Delete mob", mob ? composeName(mob) + (mob.property ? " — " + mob.property : "") : id, "mobs", id);
+      // The whole mob is kept on the log entry so it can be put back from the
+      // Activity log (Restore mob) if it was deleted by mistake.
+      logAudit(
+        "Delete mob",
+        (mob ? composeName(mob) + (mob.property ? " — " + mob.property : "") : id) + (mob ? " · " + num(mob.head).toLocaleString() + " hd" : ""),
+        "mobs",
+        id,
+        mob ? { snapshot: mob } : undefined
+      );
       flash("Mob deleted");
+    });
+  };
+
+  // Puts a deleted mob back exactly as it was (head, paddock, everything), from
+  // the snapshot kept on its "Delete mob" Activity log entry.
+  const restoreMob = (entry) => {
+    const snap = entry && entry.snapshot;
+    if (!snap || !snap.id) return;
+    if (data.mobs.some((m) => m.id === snap.id)) {
+      flash("That mob is already back");
+      return;
+    }
+    ask(`Restore ${composeName(snap)} — ${num(snap.head).toLocaleString()} hd (${snap.property}, ${paddockLabel(snap.paddock)})?`, () => {
+      setAndSave("mobs", [snap, ...data.mobs]);
+      logAudit("Restored mob", composeName(snap) + (snap.property ? " — " + snap.property : "") + " · " + num(snap.head).toLocaleString() + " hd", "mobs", snap.id);
+      flash("Mob restored");
     });
   };
 
@@ -7691,7 +7715,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               onReenter={(typeKey, defaults) => setActiveForm({ type: typeKey, defaults })}
               onDismiss={dismissLostEntry}
             />
-            <ActivityLog audit={data.audit || []} data={data} properties={properties} propFilter={propFilter} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} />
+            <ActivityLog audit={data.audit || []} data={data} properties={properties} propFilter={propFilter} onEdit={editRecordFromLog} onDelete={deleteRecordFromLog} onRestoreMob={restoreMob} />
           </>
         )}
       </main>
@@ -7855,7 +7879,7 @@ function LostEntries({ audit, data, properties, dismissed, onReenter, onDismiss 
   );
 }
 
-function ActivityLog({ audit, data, properties = [], propFilter = "All", onEdit, onDelete }) {
+function ActivityLog({ audit, data, properties = [], propFilter = "All", onEdit, onDelete, onRestoreMob }) {
   const [who, setWho] = useState("All");
   const [actionType, setActionType] = useState("All");
   const [prop, setProp] = useState(properties.includes(propFilter) ? propFilter : "All");
@@ -7956,8 +7980,20 @@ function ActivityLog({ audit, data, properties = [], propFilter = "All", onEdit,
                 <button className="mini-btn" onClick={() => onEdit(a.typeKey, a.recordId)}>
                   Edit
                 </button>
-                <button className="mini-btn danger" onClick={() => onDelete(a.typeKey, a.recordId)}>
-                  Delete
+                {/* Deleting a log line for a mob would delete the whole mob (and
+                    its head count), so mobs are deleted from the Stock register,
+                    not from here. */}
+                {a.typeKey !== "mobs" && (
+                  <button className="mini-btn danger" onClick={() => onDelete(a.typeKey, a.recordId)}>
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
+            {a.action === "Delete mob" && a.snapshot && !(data?.mobs || []).some((m) => m.id === a.snapshot.id) && (
+              <div className="btn-row" style={{ marginTop: 6 }}>
+                <button className="mini-btn allocate" onClick={() => onRestoreMob && onRestoreMob(a)}>
+                  Restore mob ({Math.round(Number(a.snapshot.head) || 0).toLocaleString()} hd)
                 </button>
               </div>
             )}
