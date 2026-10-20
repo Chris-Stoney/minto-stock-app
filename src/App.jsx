@@ -343,6 +343,7 @@ const INBOX = "Inbox";
 // straight out of the Yards. Never stored on a mob or record.
 const SORT_SOLD = "__sold__";
 const SORT_DIED = "__died__";
+const SORT_XFER = "__to__:"; // followed by the destination property's name
 // The Inbox paddock value doubles as "the Yards" — mobs land there either
 // because a property transfer hasn't been allocated to a paddock yet, or
 // because they were mustered in to sort/reclass. Same physical place, same
@@ -2772,6 +2773,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const [sortRows, setSortRows] = useState([]);
   const [sortErr, setSortErr] = useState("");
   const [sortBuyer, setSortBuyer] = useState(""); // buyer / saleyard for any "Sold" group
+  const [sortDate, setSortDate] = useState(""); // date of a sale / transfer made from the sort ("" = today)
   const [openMaintId, setOpenMaintId] = useState(null);
   const [jobFilter, setJobFilter] = useState("Open"); // Open | Done | All
   const [toast, setToast] = useState("");
@@ -3606,6 +3608,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const openSort = (mob, preset) => {
     setSortErr("");
     setSortBuyer("");
+    setSortDate("");
     setSortMob(mob);
     const blank = () => ({ head: "", cls: mob.cls || "", status: mob.status || "", toPaddock: "" });
     const first =
@@ -3621,6 +3624,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     setSortRows([]);
     setSortErr("");
     setSortBuyer("");
+    setSortDate("");
   };
   const addSortRow = () =>
     setSortRows((rows) => [...rows, { head: "", cls: sortMob?.cls || "", status: sortMob?.status || "", toPaddock: "" }]);
@@ -3628,6 +3632,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const setSortRowField = (i, key, value) => setSortRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
   const sortAllocated = sortRows.reduce((a, r) => a + (Math.round(num(r.head)) || 0), 0);
   const sortRemaining = sortMob ? Math.round(num(sortMob.head)) - sortAllocated : 0;
+  // Groups that leave the book (sold, lost, trucked to another property) rather
+  // than becoming a mob in a paddock — no class/status of their own.
+  const sortSpecial = (r) => r.toPaddock === SORT_SOLD || r.toPaddock === SORT_DIED || String(r.toPaddock || "").startsWith(SORT_XFER);
   // markMissing: also books whatever's left unallocated as a "Mismustered /
   // missing" stock adjustment on the source mob — for when fewer actually
   // turned up than the book count (e.g. 500 expected, only 450 mustered).
@@ -3640,9 +3647,19 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     if (!source) return;
     // "Sold" / "Died" groups aren't a paddock and don't need a class — they
     // leave the book (a sale record / a Deaths adjustment) instead of moving.
-    const isOut = (r) => r.toPaddock === SORT_SOLD || r.toPaddock === SORT_DIED;
+    // "Truck to <property>" groups also leave the book here: a Property
+    // transfer record, and the stock lands in that property's Yards.
+    const isXfer = (r) => String(r.toPaddock || "").startsWith(SORT_XFER);
+    const isOut = (r) => r.toPaddock === SORT_SOLD || r.toPaddock === SORT_DIED || isXfer(r);
     const rows = sortRows.filter((r) => num(r.head) > 0 && r.toPaddock && (r.cls || isOut(r)));
+    const when = sortDate || todayStr(); // date of the sale / transfer
     const totalHead = rows.reduce((a, r) => a + Math.round(num(r.head)), 0);
+    const xferByProp = {};
+    rows.filter(isXfer).forEach((r) => {
+      const p = String(r.toPaddock).slice(SORT_XFER.length);
+      xferByProp[p] = (xferByProp[p] || 0) + Math.round(num(r.head));
+    });
+    const xferHead = Object.values(xferByProp).reduce((a, n) => a + n, 0);
     const soldHead = rows.filter((r) => r.toPaddock === SORT_SOLD).reduce((a, r) => a + Math.round(num(r.head)), 0);
     const diedHead = rows.filter((r) => r.toPaddock === SORT_DIED).reduce((a, r) => a + Math.round(num(r.head)), 0);
     if (totalHead > Math.round(num(source.head))) {
@@ -3743,6 +3760,44 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         recordId: deathRec.id,
       });
     }
+    // Trucked to another property: one Property transfer per destination,
+    // exactly what the Trucking form writes — the stock is already off the
+    // source mob above, and arrives as a new mob in that property's Yards
+    // (undo reverses it the usual way).
+    Object.entries(xferByProp).forEach(([toProp, n]) => {
+      if (!n || toProp === source.property) return;
+      mobs = [{ ...source, id: uid(), head: n, property: toProp, paddock: INBOX, createdAt: Date.now() }, ...mobs];
+      const xferRec = {
+        id: uid(),
+        createdAt: Date.now(),
+        date: when,
+        ttype: "Property transfer",
+        fromProperty: source.property,
+        toProperty: toProp,
+        loads: { [source.id]: n },
+        head: n,
+        mobName: srcName,
+        property: source.property,
+        species: source.species,
+        nlis: "Not yet recorded",
+        loggedBy: userEmail || "unknown",
+        notes: "Trucked from the Yards",
+      };
+      newSaleRecs.push(xferRec);
+      const sX = summarise("trucking", xferRec);
+      auditEntries.push({
+        id: uid(),
+        ts: Date.now(),
+        user: userEmail || "unknown",
+        action: RECORD_TYPES.trucking.single,
+        summary: [sX.title, sX.sub].filter(Boolean).join(" · "),
+        typeKey: "trucking",
+        recordId: xferRec.id,
+      });
+      postToGeneralChat(
+        "🚚 " + n + " hd " + srcName + " — " + source.property + " → " + toProp + " on " + fmtDate(when) + " — coming your way, " + toProp + " 🚚 (they’ll be in your receiving yards)"
+      );
+    });
     // Sold from the Yards: one Sale to market record for the whole mob's
     // sold groups, loaded off the source mob like any other sale (undo puts
     // the head back through the usual trucking reverse).
@@ -3750,7 +3805,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       const saleRec = {
         id: uid(),
         createdAt: Date.now(),
-        date: todayStr(),
+        date: when,
         ttype: "Sale to market",
         fromProperty: source.property,
         destination: (sortBuyer || "").trim(),
@@ -3820,9 +3875,10 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     setAndSave("audit", [...auditEntries, ...(data.audit || [])]);
     closeSortOverlay();
     const parts = [];
-    const movedHead = totalHead - soldHead - diedHead;
+    const movedHead = totalHead - soldHead - diedHead - xferHead;
     const movedGroups = rows.filter((r) => !isOut(r)).length;
     if (movedHead) parts.push(`${movedHead.toLocaleString()} head into ${movedGroups} group${movedGroups === 1 ? "" : "s"}`);
+    Object.entries(xferByProp).forEach(([p, n]) => parts.push(`${n.toLocaleString()} trucked to ${p}`));
     if (soldHead) parts.push(`${soldHead.toLocaleString()} sold`);
     if (diedHead) parts.push(`${diedHead.toLocaleString()} lost`);
     if (markMissing && remaining > 0) parts.push(`${remaining.toLocaleString()} marked missing`);
@@ -5514,6 +5570,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                     <option value={INBOX}>Yards (keep sorting)</option>
                     <option value={SORT_SOLD}>💲 Sold (to market)</option>
                     <option value={SORT_DIED}>✝ Losses</option>
+                    <optgroup label="🚚 Truck to another property">
+                      {properties
+                        .filter((p) => p !== sortMob.property)
+                        .map((p) => (
+                          <option key={"x-" + p} value={SORT_XFER + p}>
+                            {p} (property transfer)
+                          </option>
+                        ))}
+                    </optgroup>
                     {paddocksFor(sortMob.property).map((p) => (
                       <option key={p} value={p}>
                         {p}
@@ -5522,7 +5587,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   </select>
                 </div>
               </div>
-              {row.toPaddock !== SORT_SOLD && row.toPaddock !== SORT_DIED && (
+              {!sortSpecial(row) && (
                 <div className="f-grid2">
                   <div className="f-row">
                     <label className="f-label">Class</label>
@@ -5546,14 +5611,16 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   </div>
                 </div>
               )}
-              {(row.toPaddock === SORT_SOLD || row.toPaddock === SORT_DIED) && (
+              {sortSpecial(row) && (
                 <p className="note" style={{ margin: "0 0 8px" }}>
                   {row.toPaddock === SORT_SOLD
                     ? "Recorded as a Sale to market off this mob."
-                    : "Recorded as a loss (Deaths stock adjustment) on this mob."}
+                    : row.toPaddock === SORT_DIED
+                    ? "Recorded as a loss (Deaths stock adjustment) on this mob."
+                    : `Recorded as a Property transfer to ${String(row.toPaddock).slice(SORT_XFER.length)}. They arrive in that property's Yards with the same description (NLIS to do).`}
                 </p>
               )}
-              {classStatusWarning(row.cls, row.status) && row.toPaddock !== SORT_SOLD && row.toPaddock !== SORT_DIED && (
+              {classStatusWarning(row.cls, row.status) && !sortSpecial(row) && (
                 <p className="note" style={{ color: "#B03A2E", margin: "0 0 8px" }}>
                   {classStatusWarning(row.cls, row.status)}
                 </p>
@@ -5570,6 +5637,14 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               + Add group
             </button>
           </div>
+          {sortRows.some((r) => r.toPaddock === SORT_SOLD || String(r.toPaddock || "").startsWith(SORT_XFER)) && (
+            <div className="f-row">
+              <label className="f-label">
+                Date of the sale / transfer <span className="opt">leave blank for today</span>
+              </label>
+              <input type="date" value={sortDate} max={todayStr()} onChange={(e) => setSortDate(e.target.value)} />
+            </div>
+          )}
           {sortRows.some((r) => r.toPaddock === SORT_SOLD) && (
             <div className="f-row">
               <label className="f-label">
