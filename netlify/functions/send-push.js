@@ -121,9 +121,35 @@ export const handler = async (event) => {
   } catch {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid request" }) };
   }
-  const { channel, title, body: bodyText } = payload;
+  const { channel, title, body: bodyText, activity } = payload;
   if (!channel || !title) {
     return { statusCode: 400, body: JSON.stringify({ error: "Missing channel or title" }) };
+  }
+
+  // Activity notifications ("something happened in the app") go only to the
+  // people chosen in Setup > Notify. The list is read here from the saved
+  // settings with the caller's own session, rather than trusted from the
+  // request, so a client can't aim a notification at anyone it likes. Each
+  // entry is "Name <email>"; a bare email is accepted too.
+  let activityEmails = [];
+  if (activity) {
+    try {
+      const sRes = await fetch(`${SUPABASE_URL}/rest/v1/store?key=eq.mp2:settings-v5&select=value`, {
+        headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
+      });
+      const rows = sRes.ok ? await sRes.json() : [];
+      const st = rows[0] ? JSON.parse(rows[0].value) : {};
+      activityEmails = (st.notifyWatchers || [])
+        .map((w) => {
+          const m = String(w || "").match(/<([^>]+)>\s*$/);
+          const e = (m ? m[1] : String(w || "")).trim().toLowerCase();
+          return e.includes("@") ? e : "";
+        })
+        .filter(Boolean);
+    } catch {
+      activityEmails = [];
+    }
+    if (!activityEmails.length) return { statusCode: 200, body: JSON.stringify({ sent: 0, of: 0 }) };
   }
 
   const subsRes = await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?select=*`, {
@@ -133,10 +159,11 @@ export const handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: "Could not load subscriptions" }) };
   }
   const subs = await subsRes.json();
-  const targets = subs.filter(
-    (s) =>
-      s.user_email !== senderEmail &&
-      (channel === "General" || s.property === channel || ALL_CHANNEL_WATCHERS.includes((s.user_email || "").toLowerCase()))
+  const targets = subs.filter((s) =>
+    activity
+      ? s.user_email !== senderEmail && activityEmails.includes((s.user_email || "").toLowerCase())
+      : s.user_email !== senderEmail &&
+        (channel === "General" || s.property === channel || ALL_CHANNEL_WATCHERS.includes((s.user_email || "").toLowerCase()))
   );
   const webTargets = targets.filter((s) => !isApns(s));
   const iosTargets = targets.filter(isApns);

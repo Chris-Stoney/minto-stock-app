@@ -2929,6 +2929,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         assetTypes: st?.assetTypes || DEFAULT_ASSET_TYPES,
         propertyElements: st?.propertyElements || DEFAULT_PROPERTY_ELEMENTS,
         propertyColours: st?.propertyColours || {},
+        notifyWatchers: st?.notifyWatchers || [],
       });
       try {
         const meR = await window.storage.get("mp2:me", false);
@@ -3114,6 +3115,51 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     if (tab === "calendar" && loaded) syncAppleCalendar(false);
     // eslint-disable-next-line
   }, [tab, loaded]);
+
+  // Activity notifications: whenever this person saves something (it shows up
+  // as a new Activity log entry of theirs), push a short notice to the people
+  // picked in Setup > Notify. Done off the audit list itself so every kind of
+  // save is covered, whichever screen it came from. Entries already in the log
+  // when the app opens, other people's entries, and automatic ones (calendar
+  // sync) never notify; a burst of saves is sent as one notice.
+  const seenAudit = useRef(null);
+  const notifyActivity = async (entries) => {
+    try {
+      if (!supabase || PREVIEW) return;
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return;
+      const who = me || String(userEmail || "").split("@")[0] || "Someone";
+      const first = entries[0];
+      const line = (first.action || "Update") + (first.summary ? ": " + first.summary : "");
+      await fetch("/.netlify/functions/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          activity: true,
+          channel: "Activity",
+          title: who,
+          body: entries.length > 1 ? `${entries.length} updates — ${line}` : line,
+        }),
+      });
+    } catch {}
+  };
+  useEffect(() => {
+    if (!loaded) return;
+    const audit = data.audit || [];
+    if (seenAudit.current === null) {
+      seenAudit.current = new Set(audit.map((a) => a.id));
+      return;
+    }
+    const fresh = audit.filter((a) => a && a.id && !seenAudit.current.has(a.id));
+    if (!fresh.length) return;
+    const t = setTimeout(() => {
+      fresh.forEach((a) => seenAudit.current.add(a.id));
+      const mine = fresh.filter((a) => a.user === userEmail && a.action !== "Apple Calendar sync");
+      if (mine.length && (settings.notifyWatchers || []).length) notifyActivity(mine);
+    }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [data.audit, loaded]);
 
   // Fire-and-forget: notifies about a newly-created calendar event, scoped
   // the same way as chat (no property = everyone, a property = just that
@@ -7290,6 +7336,47 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               <p className="note">
                 You are signed in as: {me || "no name set — enter one in Chat"}
               </p>
+            </section>
+            <section className="card">
+              <div className="card-title">Activity notifications</div>
+              <p className="note">
+                These two people get a notification on their phone every time anyone saves something in the app — a
+                record, a sale, a move, a job, a deletion. Pick them from the Team list and enter the email they sign in
+                with (only the name is shown). They need notifications switched on in the app on their own phone, and
+                they aren't notified about what they do themselves. Two people at most.
+              </p>
+              <ListEditor
+                title="Notify"
+                list={settings.notifyWatchers || []}
+                fields={[
+                  {
+                    key: "name",
+                    type: "select",
+                    placeholder: "Choose a team member…",
+                    options: Array.from(new Set((settings.team || []).map((t) => t.split(" — ")[0].trim()).filter(Boolean))),
+                  },
+                  { key: "email", type: "text", placeholder: "Their login email" },
+                ]}
+                parse={(item) => {
+                  const p = parseApprover(item);
+                  return { name: String(item || "").replace(/<[^>]+>\s*$/, "").trim(), email: p.email };
+                }}
+                combine={(v) => {
+                  const email = String(v.email || "").trim().toLowerCase();
+                  if (!v.name || !/^\S+@\S+\.\S+$/.test(email)) return "";
+                  return `${v.name} <${email}>`;
+                }}
+                renderItem={(item) => String(item || "").replace(/<[^>]+>\s*$/, "").trim()}
+                onChange={(list) => {
+                  if (list.length > (settings.notifyWatchers || []).length && list.length > 2) {
+                    flash("Two people at most — remove one first");
+                    return;
+                  }
+                  const next = { ...settings, notifyWatchers: list };
+                  setSettings(next);
+                  saveKey(KEYS.settings, next);
+                }}
+              />
             </section>
             <section className="card">
               <div className="card-title">Stock description parts</div>
