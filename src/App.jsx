@@ -7253,8 +7253,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               <p className="note">
                 Only these people can approve or decline purchase orders, and can open Setup. Pick the person from the
                 Team list and enter the email they sign in to the app with — that email is what identifies them, so
-                nothing depends on what name they typed in Chat. Entries with no email (older ones) still match on name
-                until you replace them. Leave empty to let anyone approve while testing.
+                nothing depends on what name they typed in Chat. Only names are shown here; the email is kept behind
+                the scenes. Older entries added without an email still match on name until you re-add them. Leave empty
+                to let anyone approve while testing.
               </p>
               <ListEditor
                 title="Approvers"
@@ -7277,11 +7278,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                   if (!v.name || !/^\S+@\S+\.\S+$/.test(email)) return ""; // needs a name and a real-looking email
                   return `${v.name} <${email}>`;
                 }}
-                renderItem={(item) => {
-                  const p = parseApprover(item);
-                  const nm = String(item || "").replace(/<[^>]+>\s*$/, "").trim();
-                  return p.email ? `${nm} · ${p.email}` : `${nm} (name only)`;
-                }}
+                // Names only on screen — the login email stays stored in the
+                // background (tap a name to see/change it when editing).
+                renderItem={(item) => String(item || "").replace(/<[^>]+>\s*$/, "").trim()}
                 onChange={(list) => {
                   const next = { ...settings, approvers: list };
                   setSettings(next);
@@ -7290,7 +7289,6 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               />
               <p className="note">
                 You are signed in as: {me || "no name set — enter one in Chat"}
-                {userEmail ? " · " + userEmail : ""}
               </p>
             </section>
             <section className="card">
