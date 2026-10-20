@@ -2797,16 +2797,22 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     };
   }, []);
   const ask = (message, onYes) => setConfirm({ message, onYes });
-  // An approver is picked from the Team list, so "Chris" has to match whoever is
-  // signed in as "Chris", "Chris Stoney", "Chris - GM" or chris@mintopastoral.com.au
-  // — compare the name part only (no role), lower case, by full name or first name.
+  // Approvers are stored as "Name <login@email>". A new entry (with an email)
+  // matches only the person signed in with exactly that login email. Older
+  // entries that are just a name (Office, Gwen, "Chris - GM"...) keep matching
+  // on the name — compared without any role suffix, full name only, never by
+  // first name — so nobody is locked out of Setup until they're replaced.
   const approverKey = (s) => String(s || "").toLowerCase().split(/\s[—–-]\s|\(/)[0].replace(/\s+/g, " ").trim();
-  const myApproverKeys = [approverKey(me), String(userEmail || "").split("@")[0].toLowerCase()].filter(Boolean);
+  const parseApprover = (a) => {
+    const raw = String(a || "");
+    const m = raw.match(/<([^>]+)>\s*$/);
+    return { email: m ? m[1].trim().toLowerCase() : "", name: approverKey(raw.replace(/<[^>]+>\s*$/, "")) };
+  };
+  const myEmail = String(userEmail || "").trim().toLowerCase();
   const isApprover = (settings.approvers || []).some((a) => {
-    const k = approverKey(a);
-    if (!k) return false;
-    const first = k.split(" ")[0];
-    return myApproverKeys.some((m) => m === k || m.split(" ")[0] === first);
+    const p = parseApprover(a);
+    if (p.email) return !!myEmail && p.email === myEmail;
+    return !!p.name && approverKey(me) === p.name;
   });
   const canApprove = !settings.approvers?.length || isApprover;
   // Which property (if any) this login is tagged to in Team, e.g. "Benny — Minto" -> "Minto".
@@ -7245,30 +7251,47 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <section className="card">
               <div className="card-title">Purchase order approvers</div>
               <p className="note">
-                Only these people can approve or decline purchase orders, and can open Setup. Pick them from the Team
-                list. Someone is recognised by their name (first name is enough) or their login email, so "Chris"
-                covers Chris Stoney and chris@mintopastoral.com.au. Leave empty to let anyone approve while testing.
+                Only these people can approve or decline purchase orders, and can open Setup. Pick the person from the
+                Team list and enter the email they sign in to the app with — that email is what identifies them, so
+                nothing depends on what name they typed in Chat. Entries with no email (older ones) still match on name
+                until you replace them. Leave empty to let anyone approve while testing.
               </p>
               <ListEditor
                 title="Approvers"
                 list={settings.approvers || []}
                 fields={[
                   {
-                    key: "value",
+                    key: "name",
                     type: "select",
                     placeholder: "Choose a team member…",
-                    options: Array.from(new Set((settings.team || []).map((t) => t.split(" — ")[0].trim()).filter(Boolean))).filter(
-                      (n) => !(settings.approvers || []).some((a) => approverKey(a) === approverKey(n))
-                    ),
+                    options: Array.from(new Set((settings.team || []).map((t) => t.split(" — ")[0].trim()).filter(Boolean))),
                   },
+                  { key: "email", type: "text", placeholder: "Their login email" },
                 ]}
+                parse={(item) => {
+                  const p = parseApprover(item);
+                  return { name: String(item || "").replace(/<[^>]+>\s*$/, "").trim(), email: p.email };
+                }}
+                combine={(v) => {
+                  const email = String(v.email || "").trim().toLowerCase();
+                  if (!v.name || !/^\S+@\S+\.\S+$/.test(email)) return ""; // needs a name and a real-looking email
+                  return `${v.name} <${email}>`;
+                }}
+                renderItem={(item) => {
+                  const p = parseApprover(item);
+                  const nm = String(item || "").replace(/<[^>]+>\s*$/, "").trim();
+                  return p.email ? `${nm} · ${p.email}` : `${nm} (name only)`;
+                }}
                 onChange={(list) => {
                   const next = { ...settings, approvers: list };
                   setSettings(next);
                   saveKey(KEYS.settings, next);
                 }}
               />
-              <p className="note">You are signed in as: {me || "no name set — enter one in Chat"}</p>
+              <p className="note">
+                You are signed in as: {me || "no name set — enter one in Chat"}
+                {userEmail ? " · " + userEmail : ""}
+              </p>
             </section>
             <section className="card">
               <div className="card-title">Stock description parts</div>
