@@ -533,8 +533,8 @@ const NEW_STATUSES = {
 // show on the main Calendar. Same three stored fields for both species
 // (joinDate / dueDate / testDate / sellDate) — only the label differs.
 const NEW_DATE_FIELDS = {
-  Cattle: [["joinDate", "Joining"], ["dueDate", "Due"], ["testDate", "Preg Test"], ["sellDate", "Sell"]],
-  Sheep: [["joinDate", "Joining"], ["dueDate", "Due to lamb"], ["testDate", "Scanned"], ["sellDate", "Sell"]],
+  Cattle: [["joinDate", "Assumed joining"], ["dueDate", "Due"], ["testDate", "Preg Test"], ["sellDate", "Sell"]],
+  Sheep: [["joinDate", "Assumed joining"], ["dueDate", "Due to lamb"], ["testDate", "Scanned"], ["sellDate", "Sell"]],
 };
 const MOB_DATE_COLOR = { joinDate: "#2E7F8F", dueDate: "#5C8A4E", testDate: "#A85C7A", sellDate: "#7D4E9E" };
 // Breeding statuses on a class that doesn't breed is almost certainly a
@@ -1725,8 +1725,22 @@ function RecordForm({ typeKey, mobs, paddocksFor, properties, classes, statuses,
 
 function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing }) {
   const classes = settings.classes;
-  const [vals, setVals] = useState(
-    existing || {
+  const [vals, setVals] = useState(() => {
+    if (existing) {
+      // A mob saved before the due date was worked out automatically: fill it
+      // in as the form opens (from its assumed joining date, or for sheep with
+      // none, from the scan date), so it's saved with the mob.
+      if (!existing.dueDate) {
+        const rg = existing.joinDate
+          ? dueRangeFromJoin(existing.species, existing.joinDate)
+          : existing.species === "Sheep" && existing.testDate
+          ? dueRangeFromScan(existing.testDate)
+          : null;
+        if (rg) return { ...existing, dueDate: rg[0] };
+      }
+      return existing;
+    }
+    return {
       breed: "",
       tag: "",
       cls: "",
@@ -1737,10 +1751,10 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
       property: properties[0] || "",
       paddock: "",
       notes: "",
-    }
-  );
+    };
+  });
   const [err, setErr] = useState("");
-  // Entering or changing the joining date works out the due date from it
+  // Entering or changing the assumed joining date works out the due date from it
   // (unless someone has typed their own due date, which is left alone).
   const set = (k, v) =>
     setVals((s) => {
@@ -1837,7 +1851,7 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
           <p className="note" style={{ margin: "2px 0 0" }}>
             {vals.species === "Sheep" ? "Lambing" : "Calving"} is expected between{" "}
             <b>{fmtRangeStr(dueRangeFromJoin(vals.species, vals.joinDate))}</b> —{" "}
-            {GESTATION_RANGE[vals.species][0]} to {GESTATION_RANGE[vals.species][1]} days after joining.
+            {GESTATION_RANGE[vals.species][0]} to {GESTATION_RANGE[vals.species][1]} days after the assumed joining date.
             {vals.dueDate && vals.dueDate !== dueRangeFromJoin(vals.species, vals.joinDate)[0]
               ? " The Due date above has been set by hand."
               : " Due is filled in with the start of that range; change it if you know better."}
@@ -1845,11 +1859,11 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
         )}
         {!vals.joinDate && vals.species === "Sheep" && vals.testDate && (
           <p className="note" style={{ margin: "2px 0 0" }}>
-            No joining date (rams run all year). Ewes found in lamb are taken to be {SCAN_DETECT_DAYS}–{SCAN_MAX_DAYS} days pregnant at the
+            No assumed joining date entered (rams run all year). Ewes found in lamb are taken to be {SCAN_DETECT_DAYS}–{SCAN_MAX_DAYS} days pregnant at the
             scan, so lambing is expected between <b>{fmtRangeStr(dueRangeFromScan(vals.testDate))}</b>.
             {vals.dueDate && vals.dueDate !== dueRangeFromScan(vals.testDate)[0]
               ? " The Due date above has been set by hand."
-              : " Due is filled in with the start of that range; enter a real joining date if you have one."}
+              : " Due is filled in with the start of that range; enter an assumed joining date if you'd rather work from that."}
           </p>
         )}
       </div>
@@ -5421,7 +5435,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           rows.push({ property: prop, paddock, species, cls, status, timing, other, tag, year, join, due, test, sell, head });
         });
     });
-    const header = ["Property", "Paddock", "Species", "Class", "Status", "Timing", "Other", "Tag colour", "Year", "Joining", "Due", "Preg test / Scanned", "Sell", "Head"];
+    const header = ["Property", "Paddock", "Species", "Class", "Status", "Timing", "Other", "Tag colour", "Year", "Assumed joining", "Due", "Preg test / Scanned", "Sell", "Head"];
     const lines = [header.join(",")];
     rows.forEach((r) =>
       lines.push(
