@@ -2797,7 +2797,18 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     };
   }, []);
   const ask = (message, onYes) => setConfirm({ message, onYes });
-  const canApprove = !settings.approvers?.length || (me && settings.approvers.includes(me));
+  // An approver is picked from the Team list, so "Chris" has to match whoever is
+  // signed in as "Chris", "Chris Stoney", "Chris - GM" or chris@mintopastoral.com.au
+  // — compare the name part only (no role), lower case, by full name or first name.
+  const approverKey = (s) => String(s || "").toLowerCase().split(/\s[—–-]\s|\(/)[0].replace(/\s+/g, " ").trim();
+  const myApproverKeys = [approverKey(me), String(userEmail || "").split("@")[0].toLowerCase()].filter(Boolean);
+  const isApprover = (settings.approvers || []).some((a) => {
+    const k = approverKey(a);
+    if (!k) return false;
+    const first = k.split(" ")[0];
+    return myApproverKeys.some((m) => m === k || m.split(" ")[0] === first);
+  });
+  const canApprove = !settings.approvers?.length || isApprover;
   // Which property (if any) this login is tagged to in Team, e.g. "Benny — Minto" -> "Minto".
   // Used to scope chat push notifications to General plus this person's own property.
   const myTeamEntry = (settings.team || []).find((t) => t.split(" — ")[0].trim() === me);
@@ -7234,12 +7245,23 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             <section className="card">
               <div className="card-title">Purchase order approvers</div>
               <p className="note">
-                Only these names can approve or decline purchase orders (e.g. Finance Manager, General Manager). Names
-                must match the name entered in Chat. Leave empty to let anyone approve while testing.
+                Only these people can approve or decline purchase orders, and can open Setup. Pick them from the Team
+                list. Someone is recognised by their name (first name is enough) or their login email, so "Chris"
+                covers Chris Stoney and chris@mintopastoral.com.au. Leave empty to let anyone approve while testing.
               </p>
               <ListEditor
                 title="Approvers"
                 list={settings.approvers || []}
+                fields={[
+                  {
+                    key: "value",
+                    type: "select",
+                    placeholder: "Choose a team member…",
+                    options: Array.from(new Set((settings.team || []).map((t) => t.split(" — ")[0].trim()).filter(Boolean))).filter(
+                      (n) => !(settings.approvers || []).some((a) => approverKey(a) === approverKey(n))
+                    ),
+                  },
+                ]}
                 onChange={(list) => {
                   const next = { ...settings, approvers: list };
                   setSettings(next);
