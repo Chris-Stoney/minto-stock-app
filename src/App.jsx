@@ -683,6 +683,17 @@ const fmtDate = (d) => {
   return `${day}/${m}/${String(y).slice(2)}`;
 };
 const num = (v) => (isNaN(parseFloat(v)) ? 0 : parseFloat(v));
+// Average pregnancy length, used to work out when a mob is due from its joining
+// date (ewes ~147 days, cows ~283). The Due date can always be overtyped.
+const GESTATION_DAYS = { Sheep: 147, Cattle: 283 };
+const addDaysStr = (dateStr, n) => {
+  if (!dateStr) return "";
+  const [y, m, d] = String(dateStr).split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+};
 
 // Storage mode: probed at startup. "shared" = whole team sees the same data;
 // "personal" = this device only (fallback when shared storage misbehaves);
@@ -1711,7 +1722,18 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
     }
   );
   const [err, setErr] = useState("");
-  const set = (k, v) => setVals((s) => ({ ...s, [k]: v }));
+  // Entering or changing the joining date works out the due date from it
+  // (unless someone has typed their own due date, which is left alone).
+  const set = (k, v) =>
+    setVals((s) => {
+      const next = { ...s, [k]: v };
+      if (k === "joinDate") {
+        const g = GESTATION_DAYS[next.species];
+        const oldAuto = s.joinDate && g ? addDaysStr(s.joinDate, g) : "";
+        if (g && v && (!s.dueDate || s.dueDate === oldAuto)) next.dueDate = addDaysStr(v, g);
+      }
+      return next;
+    });
   const submit = () => {
     if (!vals.cls || !vals.head || !vals.property) {
       setErr("Class, head count and property are required");
@@ -1786,6 +1808,15 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
             </div>
           ))}
         </div>
+        {vals.joinDate && GESTATION_DAYS[vals.species] && (
+          <p className="note" style={{ margin: "2px 0 0" }}>
+            {vals.species === "Sheep" ? "Lambing" : "Calving"} is expected to start around{" "}
+            <b>{fmtDate(addDaysStr(vals.joinDate, GESTATION_DAYS[vals.species]))}</b> — {GESTATION_DAYS[vals.species]} days after joining.
+            {vals.dueDate && vals.dueDate !== addDaysStr(vals.joinDate, GESTATION_DAYS[vals.species])
+              ? " The Due date above has been set by hand."
+              : " It's filled in for you; change it if you know better."}
+          </p>
+        )}
       </div>
       <div className="f-row">
         <label className="f-label">
@@ -2117,6 +2148,21 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
             editable: true,
           });
         });
+        // Joined but no due date saved yet: show the expected due date worked
+        // out from the joining date, so it's on the Calendar without anyone
+        // having to re-save the mob.
+        const g = GESTATION_DAYS[m.species];
+        if (m.joinDate && !m.dueDate && g) {
+          add(addDaysStr(m.joinDate, g), {
+            type: "mobs",
+            label: (m.species === "Sheep" ? "Due to lamb" : "Due") + " (expected) — " + composeName(m),
+            sub: [m.property, m.paddock && paddockLabel(m.paddock), num(m.head).toLocaleString() + " hd"].filter(Boolean).join(" · "),
+            color: MOB_DATE_COLOR.dueDate,
+            propColor: colorForPerson(m.property),
+            rec: m,
+            editable: true,
+          });
+        }
       });
     return map;
   }, [data, propFilter]);
