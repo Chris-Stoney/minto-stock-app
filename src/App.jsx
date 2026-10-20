@@ -531,12 +531,12 @@ const NEW_STATUSES = {
 };
 // Step 8 of the 8 Oct 2026 classification flow: key dates per mob, which
 // show on the main Calendar. Same three stored fields for both species
-// (dueDate / testDate / sellDate) — only the label differs.
+// (joinDate / dueDate / testDate / sellDate) — only the label differs.
 const NEW_DATE_FIELDS = {
-  Cattle: [["dueDate", "Due"], ["testDate", "Preg Test"], ["sellDate", "Sell"]],
-  Sheep: [["dueDate", "Due to lamb"], ["testDate", "Scanned"], ["sellDate", "Sell"]],
+  Cattle: [["joinDate", "Joining"], ["dueDate", "Due"], ["testDate", "Preg Test"], ["sellDate", "Sell"]],
+  Sheep: [["joinDate", "Joining"], ["dueDate", "Due to lamb"], ["testDate", "Scanned"], ["sellDate", "Sell"]],
 };
-const MOB_DATE_COLOR = { dueDate: "#5C8A4E", testDate: "#A85C7A", sellDate: "#7D4E9E" };
+const MOB_DATE_COLOR = { joinDate: "#2E7F8F", dueDate: "#5C8A4E", testDate: "#A85C7A", sellDate: "#7D4E9E" };
 // Breeding statuses on a class that doesn't breed is almost certainly a
 // slip — warned about, not blocked (a yearling heifer or ewe lamb can
 // legitimately be joined, so only the clearly non-breeding classes count).
@@ -5310,6 +5310,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
             m.other || "",
             m.tag || "",
             yearForTag(m.tag),
+            m.joinDate || "",
             m.dueDate || "",
             m.testDate || "",
             m.sellDate || "",
@@ -5319,15 +5320,15 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       Object.entries(byCls)
         .sort((a, b) => a[0].localeCompare(b[0]))
         .forEach(([key, head]) => {
-          const [paddock, species, cls, status, timing, other, tag, year, due, test, sell] = key.split("|");
-          rows.push({ property: prop, paddock, species, cls, status, timing, other, tag, year, due, test, sell, head });
+          const [paddock, species, cls, status, timing, other, tag, year, join, due, test, sell] = key.split("|");
+          rows.push({ property: prop, paddock, species, cls, status, timing, other, tag, year, join, due, test, sell, head });
         });
     });
-    const header = ["Property", "Paddock", "Species", "Class", "Status", "Timing", "Other", "Tag colour", "Year", "Due", "Preg test / Scanned", "Sell", "Head"];
+    const header = ["Property", "Paddock", "Species", "Class", "Status", "Timing", "Other", "Tag colour", "Year", "Joining", "Due", "Preg test / Scanned", "Sell", "Head"];
     const lines = [header.join(",")];
     rows.forEach((r) =>
       lines.push(
-        [r.property, r.paddock, r.species, r.cls, r.status, r.timing, r.other, r.tag, r.year, fmtDate(r.due), fmtDate(r.test), fmtDate(r.sell), r.head]
+        [r.property, r.paddock, r.species, r.cls, r.status, r.timing, r.other, r.tag, r.year, fmtDate(r.join), fmtDate(r.due), fmtDate(r.test), fmtDate(r.sell), r.head]
           .map(esc)
           .join(",")
       )
