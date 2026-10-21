@@ -46,8 +46,8 @@ platform :ios do
     # build waiting on a manual export-compliance question (the app only uses
     # standard HTTPS).
     plist = "App/App/Info.plist"
-    set_info_plist_value(path: plist, key: "NSCameraUsageDescription", value: "Take photos to share in the team chat.")
-    set_info_plist_value(path: plist, key: "NSPhotoLibraryUsageDescription", value: "Choose photos to share in the team chat.")
+    set_info_plist_value(path: plist, key: "NSCameraUsageDescription", value: "Take photos to share in the team chat and attach to jobs.")
+    set_info_plist_value(path: plist, key: "NSPhotoLibraryUsageDescription", value: "Choose photos to share in the team chat and attach to jobs.")
     set_info_plist_value(path: plist, key: "ITSAppUsesNonExemptEncryption", value: false)
 
     # The aps-environment entitlements file (App/App/App.entitlements) is written

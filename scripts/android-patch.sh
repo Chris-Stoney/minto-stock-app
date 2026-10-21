@@ -76,3 +76,13 @@ public class MainActivity extends BridgeActivity {
 }
 EOF
 echo "wrote $MAIN (package ${PKG})"
+
+echo "== camera permission (Take photo)"
+# The web view opens the phone's camera for <input type=file capture> only if the
+# app declares the CAMERA permission; the uses-feature line keeps the app
+# installable on devices without a camera.
+MANIFEST=android/app/src/main/AndroidManifest.xml
+if ! grep -q "android.permission.CAMERA" "$MANIFEST"; then
+  sed -i 's#</manifest>#    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n</manifest>#' "$MANIFEST"
+fi
+grep -n "CAMERA\|hardware.camera" "$MANIFEST"

@@ -1104,6 +1104,7 @@ const RECORD_TYPES = {
       { key: "dueDate", label: "Due by", type: "date", optional: true },
       { key: "estCost", label: "Estimated cost ($ ex GST)", type: "number", optional: true },
       { key: "details", label: "Details / fault note", type: "textarea", optional: true },
+      { key: "photos", label: "Photos", type: "photos", optional: true },
       { key: "status", label: "Status", type: "select", options: ["To do", "In progress", "Done"], optional: true },
     ],
   },
@@ -1177,6 +1178,131 @@ const Chip = ({ color, children }) => (
   </span>
 );
 
+/* ------------------ Photos: take or choose, one stored key per photo ------------------ */
+
+// A photo is shrunk to a small JPEG and saved under its own "mp2:photo:<id>"
+// key (so it never bloats a list), the same way chat photos are; a record just
+// remembers the key(s). "Take photo" uses capture so the phone's camera opens
+// straight away; "Choose photo" opens the gallery.
+const shrinkPhoto = (file, max = 900) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", 0.65));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+const photoCache = {};
+const loadPhoto = async (key) => {
+  if (photoCache[key]) return photoCache[key];
+  try {
+    const r = await window.storage.get(key, true);
+    if (r && r.value != null) {
+      let v = r.value;
+      try {
+        v = JSON.parse(r.value); // photos are saved JSON-encoded via saveKey
+      } catch {}
+      photoCache[key] = v;
+      return v;
+    }
+  } catch {}
+  return "";
+};
+// Tells the app to open a photo full size (it listens for this event).
+const openPhoto = (key) => window.dispatchEvent(new CustomEvent("view-photo", { detail: key }));
+
+function StoredPhoto({ photoKey, className, style, onClick }) {
+  const [src, setSrc] = useState(photoCache[photoKey] || "");
+  useEffect(() => {
+    let alive = true;
+    if (!photoCache[photoKey]) loadPhoto(photoKey).then((v) => alive && v && setSrc(v));
+    else setSrc(photoCache[photoKey]);
+    return () => {
+      alive = false;
+    };
+  }, [photoKey]);
+  return src ? (
+    <img className={className} style={style} src={src} alt="" onClick={onClick} />
+  ) : (
+    <span className={className} style={{ ...style, display: "inline-block", background: "#ECEAE0", borderRadius: 8 }} />
+  );
+}
+
+function PhotosField({ label, value, onChange, max = 6 }) {
+  const keys = Array.isArray(value) ? value : [];
+  const [busy, setBusy] = useState(false);
+  const camRef = useRef(null);
+  const galRef = useRef(null);
+  const add = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+    setBusy(true);
+    try {
+      const added = [];
+      for (const f of files.slice(0, Math.max(0, max - keys.length))) {
+        const dataUrl = await shrinkPhoto(f);
+        const k = "mp2:photo:" + uid();
+        await saveKey(k, dataUrl);
+        photoCache[k] = dataUrl;
+        added.push(k);
+      }
+      if (added.length) onChange([...keys, ...added]);
+    } catch {}
+    setBusy(false);
+  };
+  return (
+    <div className="f-row">
+      <label className="f-label">{label}</label>
+      {keys.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+          {keys.map((k) => (
+            <span key={k} style={{ position: "relative" }}>
+              <StoredPhoto
+                photoKey={k}
+                onClick={() => openPhoto(k)}
+                style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, cursor: "pointer", border: "1px solid #E4E1D6" }}
+              />
+              <button
+                type="button"
+                aria-label="Remove photo"
+                onClick={() => onChange(keys.filter((x) => x !== k))}
+                style={{ position: "absolute", top: -6, right: -6, width: 22, height: 22, borderRadius: "50%", border: "none", background: "#B03A2E", color: "#fff", fontSize: 12, lineHeight: "22px", padding: 0 }}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {keys.length < max && (
+        <div className="btn-row" style={{ justifyContent: "flex-start", marginTop: 0 }}>
+          <button type="button" className="btn ghost sm" disabled={busy} onClick={() => camRef.current && camRef.current.click()}>
+            📷 Take photo
+          </button>
+          <button type="button" className="btn ghost sm" disabled={busy} onClick={() => galRef.current && galRef.current.click()}>
+            🖼 Choose photo
+          </button>
+        </div>
+      )}
+      {busy && <p className="note">Adding photo…</p>}
+      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={add} />
+      <input ref={galRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={add} />
+    </div>
+  );
+}
+
 // Tag colour picker: tap one, two or three colours, or M/A for mixed age.
 // Shared by the New/Edit mob form and the Purchase form so a tag is entered
 // and stored the same way in both ("White tag", "White + Orange tag", "M/A").
@@ -1229,6 +1355,19 @@ const Field = ({ f, value, onChange, mobs, breeds, paddocks, properties, classes
     value: value ?? "",
     onChange: (e) => onChange(f.key, e.target.value),
   };
+  if (f.type === "photos")
+    return (
+      <PhotosField
+        value={value}
+        onChange={(v) => onChange(f.key, v)}
+        label={
+          <>
+            {f.label}
+            {f.optional ? <span className="opt"> optional</span> : null}
+          </>
+        }
+      />
+    );
   if (f.type === "tag")
     return (
       <TagChips
@@ -2386,6 +2525,7 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
   const [pushBusy, setPushBusy] = useState(false);
   const [replyTo, setReplyTo] = useState(null); // the message being replied to, or null
   const fileRef = useRef(null);
+  const camRef = useRef(null);
   const textRef = useRef(null);
   const key = "mp2:chat:" + property;
 
@@ -2795,9 +2935,13 @@ function ChatScreen({ property, me, onSetMe, properties, myProperty, userEmail, 
           </div>
         )}
         <div className="chat-bar-row">
-          <button className="chat-photo-btn" disabled={busy} onClick={() => fileRef.current && fileRef.current.click()}>
+          <button className="chat-photo-btn" disabled={busy} title="Take a photo" onClick={() => camRef.current && camRef.current.click()}>
             📷
           </button>
+          <button className="chat-photo-btn" disabled={busy} title="Choose a photo" onClick={() => fileRef.current && fileRef.current.click()}>
+            🖼
+          </button>
+          <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onPickPhoto} />
           <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onPickPhoto} />
           <textarea
             ref={textRef}
@@ -2906,6 +3050,12 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   const [sortDate, setSortDate] = useState(""); // date of a sale / transfer made from the sort ("" = today)
   const [openMaintId, setOpenMaintId] = useState(null);
   const [jobFilter, setJobFilter] = useState("Open"); // Open | Done | All
+  const [viewPhotoKey, setViewPhotoKey] = useState(null); // a photo open full size
+  useEffect(() => {
+    const h = (e) => setViewPhotoKey(e.detail || null);
+    window.addEventListener("view-photo", h);
+    return () => window.removeEventListener("view-photo", h);
+  }, []);
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState(null); // { message, onYes }
   const [commentary, setCommentary] = useState({ prop: "", text: "", loading: false });
@@ -7189,6 +7339,18 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                             {po.supplier ? " · " + po.supplier : ""}
                           </div>
                         )}
+                        {(j.photos || []).length > 0 && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "6px 0 2px" }}>
+                            {j.photos.map((k) => (
+                              <StoredPhoto
+                                key={k}
+                                photoKey={k}
+                                onClick={() => openPhoto(k)}
+                                style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, cursor: "pointer", border: "1px solid #E4E1D6" }}
+                              />
+                            ))}
+                          </div>
+                        )}
                         <div className="btn-row" style={{ marginTop: 6, justifyContent: "flex-start", flexWrap: "wrap" }}>
                           {j.status !== "Done" && (!po || po.status === "Declined") && (
                             <button className="mini-btn allocate" onClick={() => raiseJobPO(j)}>
@@ -7937,6 +8099,16 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       {mobDetailOverlay}
       {sortOverlay}
       {reclassifyOverlay}
+      {viewPhotoKey && (
+        <div className="overlay" onClick={() => setViewPhotoKey(null)}>
+          <div style={{ maxWidth: "96vw", textAlign: "center", margin: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <StoredPhoto photoKey={viewPhotoKey} style={{ maxWidth: "96vw", maxHeight: "80vh", borderRadius: 10, display: "block", margin: "0 auto" }} />
+            <button className="btn primary sm" style={{ marginTop: 12 }} onClick={() => setViewPhotoKey(null)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       {confirm && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && setConfirm(null)}>
           <div className="confirm-box">
