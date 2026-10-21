@@ -159,12 +159,26 @@ export const handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: "Could not load subscriptions" }) };
   }
   const subs = await subsRes.json();
-  const targets = subs.filter((s) =>
+  let targets = subs.filter((s) =>
     activity
       ? s.user_email !== senderEmail && activityEmails.includes((s.user_email || "").toLowerCase())
       : s.user_email !== senderEmail &&
         (channel === "General" || s.property === channel || ALL_CHANNEL_WATCHERS.includes((s.user_email || "").toLowerCase()))
   );
+  // Activity notices can be frequent, so each person gets them on ONE device:
+  // someone who has turned notifications on in both the iPhone app and a web
+  // browser (or on two phones) would otherwise get every notice twice. The
+  // iPhone app is preferred, otherwise the most recently registered browser.
+  if (activity) {
+    const best = new Map();
+    for (const s of targets) {
+      const key = (s.user_email || "").toLowerCase();
+      const cur = best.get(key);
+      const rank = (x) => (isApns(x) ? 1 : 0) * 1e15 + (Date.parse(x.updated_at || "") || 0);
+      if (!cur || rank(s) > rank(cur)) best.set(key, s);
+    }
+    targets = [...best.values()];
+  }
   const webTargets = targets.filter((s) => !isApns(s));
   const iosTargets = targets.filter(isApns);
 
