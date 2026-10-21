@@ -688,13 +688,11 @@ const num = (v) => (isNaN(parseFloat(v)) ? 0 : parseFloat(v));
 // start of that range and can always be overtyped.
 const GESTATION_DAYS = { Sheep: 147, Cattle: 283 };
 const GESTATION_RANGE = { Sheep: [142, 152], Cattle: [273, 293] };
-// Rams run with the ewes all year, so a mob often has no real joining date.
-// A pregnancy only shows on a scan from about 6 weeks (SCAN_DETECT_DAYS), and
-// ewes found in lamb are taken to be at most about SCAN_MAX_DAYS pregnant, so a
-// mob scanned on S lambs from S + 147 - 90 to S + 147 - 42. Sheep only, and
-// only when no joining date has been entered.
-const SCAN_DETECT_DAYS = 42;
-const SCAN_MAX_DAYS = 90;
+// Rams run with the ewes all year, so a mob often has no real joining date. A
+// pregnancy only shows on a scan from about 6 weeks, so a sheep mob scanned on S
+// with no joining date entered is given an ASSUMED joining date of S minus
+// SCAN_DETECT_DAYS, and the due range follows from that like any other.
+const SCAN_DETECT_DAYS = 43;
 const addDaysStr = (dateStr, n) => {
   if (!dateStr) return "";
   const [y, m, d] = String(dateStr).split("-").map(Number);
@@ -708,9 +706,11 @@ const dueRangeFromJoin = (species, joinDate) => {
   const r = GESTATION_RANGE[species];
   return r && joinDate ? [addDaysStr(joinDate, r[0]), addDaysStr(joinDate, r[1])] : null;
 };
-// [first, last] expected lambing dates for a sheep mob scanned on scanDate.
-const dueRangeFromScan = (scanDate) =>
-  scanDate ? [addDaysStr(scanDate, GESTATION_DAYS.Sheep - SCAN_MAX_DAYS), addDaysStr(scanDate, GESTATION_DAYS.Sheep - SCAN_DETECT_DAYS)] : null;
+// The joining date assumed for a sheep mob from its scan date.
+const assumedJoinFromScan = (scanDate) => (scanDate ? addDaysStr(scanDate, -SCAN_DETECT_DAYS) : "");
+// The joining date to work from: the one entered, or for sheep the assumed one
+// from the scan date.
+const effectiveJoin = (m) => m.joinDate || (m.species === "Sheep" && m.testDate ? assumedJoinFromScan(m.testDate) : "");
 const fmtRangeStr = (r) => (r ? fmtDate(r[0]) + " – " + fmtDate(r[1]) : "");
 
 // Storage mode: probed at startup. "shared" = whole team sees the same data;
@@ -1727,18 +1727,21 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
   const classes = settings.classes;
   const [vals, setVals] = useState(() => {
     if (existing) {
-      // A mob saved before the due date was worked out automatically: fill it
-      // in as the form opens (from its assumed joining date, or for sheep with
-      // none, from the scan date), so it's saved with the mob.
-      if (!existing.dueDate) {
-        const rg = existing.joinDate
-          ? dueRangeFromJoin(existing.species, existing.joinDate)
-          : existing.species === "Sheep" && existing.testDate
-          ? dueRangeFromScan(existing.testDate)
-          : null;
-        if (rg) return { ...existing, dueDate: rg[0] };
+      // A mob saved before these dates were worked out automatically: fill them
+      // in as the form opens, so they're saved with the mob. A sheep mob with a
+      // scan date but no Joining gets the assumed joining date (scan - 43 days),
+      // and the due date comes from whichever joining date there is.
+      const out = { ...existing };
+      // The previous version of the scan rule saved Due = scan + 57 days on its
+      // own; treat that value as automatic (not typed by hand) so it's replaced.
+      const oldScanDue = out.testDate ? addDaysStr(out.testDate, 57) : "";
+      const dueWasAuto = !out.dueDate || (!out.joinDate && out.species === "Sheep" && out.dueDate === oldScanDue);
+      if (!out.joinDate && out.species === "Sheep" && out.testDate) out.joinDate = assumedJoinFromScan(out.testDate);
+      if (dueWasAuto && out.joinDate) {
+        const rg = dueRangeFromJoin(out.species, out.joinDate);
+        if (rg) out.dueDate = rg[0];
       }
-      return existing;
+      return out;
     }
     return {
       breed: "",
@@ -1765,11 +1768,17 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
         const old = dueRangeFromJoin(next.species, s.joinDate);
         if (rg && (!s.dueDate || (old && s.dueDate === old[0]))) next.dueDate = rg[0];
       }
-      // Sheep scanned but with no joining date (rams run all year): work the
-      // range out from the scan date, unless a due date was typed by hand.
-      if (k === "testDate" && next.species === "Sheep" && !next.joinDate && v) {
-        const old = dueRangeFromScan(s.testDate);
-        if (!s.dueDate || (old && s.dueDate === old[0])) next.dueDate = dueRangeFromScan(v)[0];
+      // Sheep scanned (rams run all year): Joining is assumed to be the scan
+      // date minus SCAN_DETECT_DAYS, unless a joining date was typed by hand;
+      // and the due date follows it, unless that was typed by hand too.
+      if (k === "testDate" && next.species === "Sheep" && v) {
+        const oldAutoJoin = assumedJoinFromScan(s.testDate);
+        if (!s.joinDate || s.joinDate === oldAutoJoin) {
+          next.joinDate = assumedJoinFromScan(v);
+          const rg = dueRangeFromJoin(next.species, next.joinDate);
+          const old = dueRangeFromJoin(next.species, s.joinDate);
+          if (rg && (!s.dueDate || (old && s.dueDate === old[0]))) next.dueDate = rg[0];
+        }
       }
       return next;
     });
@@ -1857,13 +1866,10 @@ function MobForm({ properties, paddocksFor, settings, onSave, onCancel, existing
               : " Due is filled in with the start of that range; change it if you know better."}
           </p>
         )}
-        {!vals.joinDate && vals.species === "Sheep" && vals.testDate && (
+        {vals.species === "Sheep" && vals.testDate && vals.joinDate === assumedJoinFromScan(vals.testDate) && (
           <p className="note" style={{ margin: "2px 0 0" }}>
-            No assumed joining date entered (rams run all year). Ewes found in lamb are taken to be {SCAN_DETECT_DAYS}–{SCAN_MAX_DAYS} days pregnant at the
-            scan, so lambing is expected between <b>{fmtRangeStr(dueRangeFromScan(vals.testDate))}</b>.
-            {vals.dueDate && vals.dueDate !== dueRangeFromScan(vals.testDate)[0]
-              ? " The Due date above has been set by hand."
-              : " Due is filled in with the start of that range; enter an assumed joining date if you'd rather work from that."}
+            Rams run all year, so Joining has been filled in as the assumed joining date: {SCAN_DETECT_DAYS} days before the scan (a pregnancy
+            doesn't show on a scan before then). Type a real joining date over it if you have one.
           </p>
         )}
       </div>
@@ -2187,8 +2193,10 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
       .forEach((m) => {
         const sub = [m.property, m.paddock && paddockLabel(m.paddock), num(m.head).toLocaleString() + " hd"].filter(Boolean).join(" · ");
         // Expected lambing/calving range: from the joining date, or — sheep with
-        // no joining date (rams in all year) — from the scan date.
-        const rng = m.joinDate ? dueRangeFromJoin(m.species, m.joinDate) : m.species === "Sheep" && m.testDate ? dueRangeFromScan(m.testDate) : null;
+        // no joining date (rams in all year) — from the assumed joining date
+        // worked out from the scan.
+        const joinDerived = !m.joinDate && !!effectiveJoin(m);
+        const rng = dueRangeFromJoin(m.species, effectiveJoin(m));
         const dueIsAuto = !!rng && (!m.dueDate || m.dueDate === rng[0]);
         (NEW_DATE_FIELDS[m.species] || []).forEach(([key, label]) => {
           if (!m[key]) return;
@@ -2204,12 +2212,23 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
         });
         if (rng) {
           const verb = m.species === "Sheep" ? "lamb" : "calve";
+          // Joining not saved but worked out from the scan: show it too.
+          if (joinDerived)
+            add(effectiveJoin(m), {
+              type: "mobs",
+              label: "Joining (assumed from scan) — " + composeName(m),
+              sub,
+              color: MOB_DATE_COLOR.joinDate,
+              propColor: colorForPerson(m.property),
+              rec: m,
+              editable: true,
+            });
           // No due date saved yet: still show when it starts, so it's on the
           // Calendar without anyone having to re-save the mob.
           if (!m.dueDate)
             add(rng[0], {
               type: "mobs",
-              label: `Due to ${verb} (${m.joinDate ? "expected" : "assumed from scan"}, to ${fmtDate(rng[1])}) — ` + composeName(m),
+              label: `Due to ${verb} (${joinDerived ? "assumed from scan" : "expected"}, to ${fmtDate(rng[1])}) — ` + composeName(m),
               sub,
               color: MOB_DATE_COLOR.dueDate,
               propColor: colorForPerson(m.property),
