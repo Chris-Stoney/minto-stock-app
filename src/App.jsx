@@ -2282,7 +2282,12 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
       (map[date] = map[date] || []).push(item);
     };
     byProp(data.musters).forEach((r) => add(r.date, { type: "musters", label: r.activity || "Muster", sub: r.property, color: TAG.musters, propColor: colorForPerson(r.property), rec: r, editable: true }));
-    byProp(data.calendar).filter((r) => !r.appleHidden).forEach((r) => {
+    // An event with no property (leave, public holidays, anything for everyone)
+    // belongs to the whole company, so it shows whichever property is selected —
+    // otherwise it saved fine but vanished as soon as a property was picked.
+    (data.calendar || [])
+      .filter((r) => !r.appleHidden && (propFilter === "All" || !r.property || r.property === propFilter))
+      .forEach((r) => {
       const label = (r.time ? r.time + " — " : "") + (r.title || "Event") + (r.activityType ? " · " + r.activityType : "");
       const spansDays = r.endDate && r.endDate > r.date;
       const sub = [r.property, r.assignedTo, spansDays ? fmtDate(r.date) + " – " + fmtDate(r.endDate) : "", r.source === "apple" ? "Apple Calendar" : ""]
@@ -4298,11 +4303,18 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
   // queued locally and retried automatically once the connection is back
   // (see replayPendingQueue), so patchy reception at the yards can delay a
   // save without silently eating it.
+  //
+  // Writes to the same key run one after another, in the order they were made.
+  // Two saves of one key in a single action (editing a record removes the old
+  // version, then adds the new one) used to be written at the same time, and
+  // whichever retried last could undo the other — so an edited or new record
+  // could be removed again, or a stock count put back to the wrong number.
+  const writeChains = useRef({});
   const setAndSave = (key, arr) => {
     const before = data[key] || [];
     setData((d) => ({ ...d, [key]: arr }));
     if (PREVIEW) return; // preview: in-session only
-    (async () => {
+    const job = async () => {
       if (STORAGE.mode !== "shared") {
         const ok = await saveKey(KEYS[key], arr);
         if (!ok) setStorageMode("memory");
@@ -4321,7 +4333,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
         queuePendingWrite({ key, changed, removedIds });
         setPendingCount((n) => n + 1);
       }
-    })();
+    };
+    const prev = writeChains.current[key] || Promise.resolve();
+    writeChains.current[key] = prev.then(job, job).catch(() => {});
   };
 
   // Retries everything queued while offline (or otherwise unreachable),
