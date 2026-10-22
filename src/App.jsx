@@ -2290,7 +2290,14 @@ function CalendarScreen({ data, propFilter, onAddEvent, onEditItem, onDeleteEven
       .forEach((r) => {
       const label = (r.time ? r.time + " — " : "") + (r.title || "Event") + (r.activityType ? " · " + r.activityType : "");
       const spansDays = r.endDate && r.endDate > r.date;
-      const sub = [r.property, r.assignedTo, spansDays ? fmtDate(r.date) + " – " + fmtDate(r.endDate) : "", r.source === "apple" ? "Apple Calendar" : ""]
+      const editedHere =
+        r.source === "apple" && r.appleSynced && ["date", "endDate", "time", "title", "notes"].some((f) => (r[f] || "") !== (r.appleSynced[f] || ""));
+      const sub = [
+        r.property,
+        r.assignedTo,
+        spansDays ? fmtDate(r.date) + " – " + fmtDate(r.endDate) : "",
+        r.source === "apple" ? "Apple Calendar" + (editedHere ? " · changed here" : "") : "",
+      ]
         .filter(Boolean)
         .join(" · ");
       const firstAssignee = (r.assignedTo || "").split(",")[0]?.trim();
@@ -3335,6 +3342,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
       let added = 0;
       let updated = 0;
       let removed = 0;
+      let snapped = 0; // events that only needed their "what Apple said" note saved
       events.forEach((ev) => {
         seen.add(ev.uid);
         const ex = byUid.get(ev.uid);
@@ -3352,27 +3360,39 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
               time: ev.time || "",
               title: ev.title,
               notes: ev.notes || "",
+              // What Apple said last time, so a change made here can be told
+              // apart from a change made in Apple Calendar.
+              appleSynced: { date: ev.date, endDate: ev.endDate || "", time: ev.time || "", title: ev.title, notes: ev.notes || "" },
             },
             ...next,
           ];
           added++;
         } else {
-          // Only fills a missing property; one set in the app is never changed.
+          // Follow Apple for each field only while it still matches what Apple
+          // said last time; a field someone has edited in the app is kept as
+          // edited. A property set in the app is never changed.
+          const snap = ex.appleSynced || null;
+          const apple = { date: ev.date, endDate: ev.endDate || "", time: ev.time || "", title: ev.title, notes: ev.notes || "" };
+          const upd = { ...ex, appleSynced: apple };
+          let valuesChanged = false;
+          Object.keys(apple).forEach((f) => {
+            const local = ex[f] || "";
+            const lastApple = snap ? snap[f] || "" : apple[f]; // events from before this: edited if they differ from Apple now
+            if (local === lastApple && local !== apple[f]) {
+              upd[f] = apple[f];
+              valuesChanged = true;
+            }
+          });
           const prop = ex.property || propertyFromTitle(ev.title);
-          if (
-            ex.date !== ev.date ||
-            (ex.endDate || "") !== (ev.endDate || "") ||
-            (ex.time || "") !== (ev.time || "") ||
-            ex.title !== ev.title ||
-            (ex.notes || "") !== (ev.notes || "") ||
-            (ex.property || "") !== prop
-          ) {
-            next = next.map((r) =>
-              r.id === ex.id
-                ? { ...r, property: prop, date: ev.date, endDate: ev.endDate || "", time: ev.time || "", title: ev.title, notes: ev.notes || "" }
-                : r
-            );
-            updated++;
+          if (prop !== (ex.property || "")) {
+            upd.property = prop;
+            valuesChanged = true;
+          }
+          const snapChanged = JSON.stringify(snap) !== JSON.stringify(apple);
+          if (valuesChanged || snapChanged) {
+            next = next.map((r) => (r.id === ex.id ? upd : r));
+            if (valuesChanged) updated++;
+            else snapped++;
           }
         }
       });
@@ -3387,11 +3407,13 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
           removed = gone.length;
         }
       }
-      if (added || updated || removed) {
+      if (added || updated || removed || snapped) {
         setAndSave("calendar", next);
-        try {
-          logAudit("Apple Calendar sync", `${added} new, ${updated} updated, ${removed} removed`);
-        } catch {}
+        if (added || updated || removed) {
+          try {
+            logAudit("Apple Calendar sync", `${added} new, ${updated} updated, ${removed} removed`);
+          } catch {}
+        }
       }
       setAppleSync({ state: "ok", at: Date.now(), count: events.length, error: "" });
     } catch (e) {
