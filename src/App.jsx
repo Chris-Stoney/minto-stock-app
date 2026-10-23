@@ -3492,6 +3492,47 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     } catch {}
   };
 
+  // Purchase order notices: a push to the approvers (saved in Setup with a login
+  // email) when a PO is raised, and to whoever raised it when it's approved or
+  // declined. The server works out who the approvers are; the sender is never
+  // notified about their own action. Fire-and-forget — it never blocks saving.
+  const notifyPO = async (kind, o, decision) => {
+    try {
+      if (!supabase || PREVIEW || !o) return;
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return;
+      const what =
+        (o.item || "Purchase order") +
+        " — $" +
+        num(o.amount).toLocaleString() +
+        (o.supplier ? " · " + o.supplier : "") +
+        (o.property ? " · " + o.property : "");
+      let payload;
+      if (kind === "raised") {
+        payload = {
+          po: "raised",
+          channel: "PO",
+          title: "PO to approve" + (o.property ? " — " + o.property : ""),
+          body: what + (o.requestedBy ? " · raised by " + o.requestedBy : ""),
+        };
+      } else {
+        if (!o.requestedByEmail) return;
+        payload = {
+          po: "decided",
+          toEmail: o.requestedByEmail,
+          channel: "PO",
+          title: "PO " + String(decision || "").toLowerCase(),
+          body: what + (me ? " · " + me : ""),
+        };
+      }
+      await fetch("/.netlify/functions/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+    } catch {}
+  };
+
   const flash = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(""), 2200);
@@ -4541,6 +4582,8 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     if (typeKey === "orders") {
       rec.status = "Pending";
       rec.requestedBy = me || "";
+      // Who to tell when it's decided (kept across edits).
+      if (!rec.requestedByEmail) rec.requestedByEmail = userEmail || "";
       // A PO raised from a job: the job remembers it, so the job list can show
       // where the approval has got to.
       if (rec.jobId && (data.jobs || []).some((j) => j.id === rec.jobId)) {
@@ -4851,6 +4894,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
     setAndSave("orders", orders);
     const o = data.orders.find((x) => x.id === id);
     logAudit("PO " + decision, o ? (o.item || "") + " — $" + num(o.amount).toLocaleString() : "", "orders", id);
+    if (o) notifyPO("decided", o, decision);
     flash("Order " + decision.toLowerCase());
   };
 
@@ -5721,6 +5765,7 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 }
                 saveRecord(typeKey, rec);
                 if (isNew && typeKey === "calendar") triggerCalendarPush(rec);
+                if (isNew && typeKey === "orders") notifyPO("raised", rec);
               };
               // Warn before a sale, transfer, adjustment, weaning or preg test
               // takes more head off a mob than the book says it has.
@@ -7728,8 +7773,9 @@ export default function App({ onSignOut, userEmail, userName } = {}) {
                 Only these people can approve or decline purchase orders, and can open Setup. Pick the person from the
                 Team list and enter the email they sign in to the app with — that email is what identifies them, so
                 nothing depends on what name they typed in Chat. Only names are shown here; the email is kept behind
-                the scenes. Older entries added without an email still match on name until you re-add them. Leave empty
-                to let anyone approve while testing.
+                the scenes. Approvers added with an email are also notified on their phone the moment a purchase order is
+                raised; older entries added without an email still match on name but can't be notified until you re-add
+                them. Leave empty to let anyone approve while testing.
               </p>
               <ListEditor
                 title="Approvers"

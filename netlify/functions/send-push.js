@@ -121,7 +121,7 @@ export const handler = async (event) => {
   } catch {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid request" }) };
   }
-  const { channel, title, body: bodyText, activity } = payload;
+  const { channel, title, body: bodyText, activity, po, toEmail } = payload;
   if (!channel || !title) {
     return { statusCode: 400, body: JSON.stringify({ error: "Missing channel or title" }) };
   }
@@ -152,6 +152,36 @@ export const handler = async (event) => {
     if (!activityEmails.length) return { statusCode: 200, body: JSON.stringify({ sent: 0, of: 0 }) };
   }
 
+  // Purchase order notices. "raised" goes to the approvers chosen in Setup (the
+  // ones saved with a login email — read from the saved settings here, not
+  // trusted from the request); "decided" goes to the one person named in
+  // toEmail (whoever raised the PO). Entries saved by name only can't be
+  // matched to a phone, so they're skipped.
+  let poEmails = [];
+  if (po) {
+    if (po === "decided") {
+      const e = String(toEmail || "").trim().toLowerCase();
+      poEmails = e.includes("@") ? [e] : [];
+    } else {
+      try {
+        const sRes = await fetch(`${SUPABASE_URL}/rest/v1/store?key=eq.mp2:settings-v5&select=value`, {
+          headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
+        });
+        const rows = sRes.ok ? await sRes.json() : [];
+        const st = rows[0] ? JSON.parse(rows[0].value) : {};
+        poEmails = (st.approvers || [])
+          .map((w) => {
+            const m = String(w || "").match(/<([^>]+)>\s*$/);
+            return m ? m[1].trim().toLowerCase() : "";
+          })
+          .filter((e) => e.includes("@"));
+      } catch {
+        poEmails = [];
+      }
+    }
+    if (!poEmails.length) return { statusCode: 200, body: JSON.stringify({ sent: 0, of: 0 }) };
+  }
+
   const subsRes = await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?select=*`, {
     headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
   });
@@ -160,7 +190,9 @@ export const handler = async (event) => {
   }
   const subs = await subsRes.json();
   let targets = subs.filter((s) =>
-    activity
+    po
+      ? s.user_email !== senderEmail && poEmails.includes((s.user_email || "").toLowerCase())
+      : activity
       ? s.user_email !== senderEmail && activityEmails.includes((s.user_email || "").toLowerCase())
       : s.user_email !== senderEmail &&
         (channel === "General" || s.property === channel || ALL_CHANNEL_WATCHERS.includes((s.user_email || "").toLowerCase()))
@@ -169,7 +201,7 @@ export const handler = async (event) => {
   // someone who has turned notifications on in both the iPhone app and a web
   // browser (or on two phones) would otherwise get every notice twice. The
   // iPhone app is preferred, otherwise the most recently registered browser.
-  if (activity) {
+  if (activity || po) {
     const best = new Map();
     for (const s of targets) {
       const key = (s.user_email || "").toLowerCase();
